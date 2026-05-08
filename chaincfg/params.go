@@ -79,6 +79,15 @@ type Checkpoint struct {
 	Hash   *chainhash.Hash
 }
 
+// AssumeUTXOCheckpoint identifies a known hash of the UTXOSet. This enables
+// faster IBD by avoiding several validations. The hash is reproducible at the
+// height and is compatible with the Bitcoin Core assumeutxo hashes.
+type AssumeUTXOCheckpoint struct {
+	Height      int32
+	UTXOSetHash [32]byte
+	BlockHash   [32]byte
+}
+
 // EffectiveAlwaysActiveHeight returns the effective activation height for the
 // deployment. If AlwaysActiveHeight is unset (i.e. zero), it returns
 // the maximum uint32 value to indicate that it does not force activation.
@@ -260,6 +269,9 @@ type Params struct {
 	// Checkpoints ordered from oldest to newest.
 	Checkpoints []Checkpoint
 
+	// AssumeUTXOCheckpoints from oldest to newest
+	AssumeUTXOCheckpoints []AssumeUTXOCheckpoint
+
 	// These fields are related to voting on consensus rule changes as
 	// defined by BIP0009.
 	//
@@ -370,6 +382,16 @@ var MainNetParams = Params{
 		{781565, newHashFromStr("00000000000000000002b8c04999434c33b8e033f11a977b288f8411766ee61c")},
 		{800000, newHashFromStr("00000000000000000002a7c4c1e48d76c5a37902165a270156b7a8d72728a054")},
 		{810000, newHashFromStr("000000000000000000028028ca82b6aa81ce789e4eb9e0321b74c3cbaf405dd1")},
+		{938343, newHashFromStr("00000000000000000000ccebd6d74d9194d8dcdc1d177c478e094bfad51ba5ac")},
+	},
+
+	// AssumeUTXOCheckpoints from oldest to newest
+	AssumeUTXOCheckpoints: []AssumeUTXOCheckpoint{
+		{
+			Height:      935000,
+			UTXOSetHash: *newHashFromStr("e4b90ef9eae834f56c4b64d2d50143cee10ad87994c614d7d04125e2a6025050"),
+			BlockHash:   *newHashFromStr("0000000000000000000147034958af1652b2b91bba607beacc5e72a56f0fb5ee"),
+		},
 	},
 
 	// Consensus rule change deployments.
@@ -1021,7 +1043,18 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 		GenerateSupported:        false,
 
 		// Checkpoints ordered from oldest to newest.
-		Checkpoints: nil,
+		Checkpoints: []Checkpoint{
+			{293175, newHashFromStr("00000008414aab61092ef93f1aacc54cf9e9f16af29ddad493b908a01ff5c329")},
+		},
+
+		// AssumeUTXOCheckpoints from oldest to newest
+		AssumeUTXOCheckpoints: []AssumeUTXOCheckpoint{
+			{
+				Height:      290000,
+				UTXOSetHash: *newHashFromStr("97267e000b4b876800167e71b9123f1529d13b14308abec2888bbd2160d14545"),
+				BlockHash:   *newHashFromStr("0000000577f2741bb30cd9d39d6d71b023afbeb9764f6260786a97969d5c9ac0"),
+			},
+		},
 
 		// Consensus rule change deployments.
 		//
