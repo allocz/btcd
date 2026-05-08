@@ -7,7 +7,10 @@ package blockchain
 
 import (
 	"container/list"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -94,14 +97,16 @@ type BlockChain struct {
 	// The following fields are set when the instance is created and can't
 	// be changed afterwards, so there is no need to protect them with a
 	// separate mutex.
-	checkpoints         []chaincfg.Checkpoint
-	checkpointsByHeight map[int32]*chaincfg.Checkpoint
-	db                  database.DB
-	chainParams         *chaincfg.Params
-	timeSource          MedianTimeSource
-	sigCache            *txscript.SigCache
-	indexManager        IndexManager
-	hashCache           *txscript.HashCache
+	checkpoints                   []chaincfg.Checkpoint
+	checkpointsByHeight           map[int32]*chaincfg.Checkpoint
+	assumeUTXOCheckpoints         []chaincfg.AssumeUTXOCheckpoint
+	assumeUTXOCheckpointsByHeight map[int32]*chaincfg.AssumeUTXOCheckpoint
+	db                            database.DB
+	chainParams                   *chaincfg.Params
+	timeSource                    MedianTimeSource
+	sigCache                      *txscript.SigCache
+	indexManager                  IndexManager
+	hashCache                     *txscript.HashCache
 
 	// The following fields are calculated based upon the provided chain
 	// parameters.  They are also set when the instance is created and
@@ -1215,7 +1220,8 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		// Connect the transactions to the cache.  All the txs are considered valid
 		// at this point as they have passed validation or was considered valid already.
 		stxos := make([]SpentTxOut, 0, countSpentOutputs(block))
-		err := b.utxoCache.connectTransactions(block, &stxos)
+		err := b.utxoCache.connectTransactions2(block, &stxos,
+			cacheOpts{bflags: flags})
 		if err != nil {
 			return false, err
 		}
@@ -2175,6 +2181,14 @@ type Config struct {
 	// checkpoints.
 	Checkpoints []chaincfg.Checkpoint
 
+	// AssumeUTXOCheckpoints hold caller-defined assumeutxo checkpoints that
+	// should be added to the default assumeutxo checkpoints in ChainParams.
+	// Checkpoints must be sorted by height.
+	//
+	// This field can be nil if the caller does not wish to specify any
+	// checkpoints.
+	AssumeUTXOCheckpoints []chaincfg.AssumeUTXOCheckpoint
+
 	// TimeSource defines the median time source to use for things such as
 	// block processing and determining whether or not the chain is current.
 	//
@@ -2246,31 +2260,54 @@ func New(config *Config) (*BlockChain, error) {
 		}
 	}
 
+	// Generate a assumeutxo checkpoint by height map from the provided
+	// checkpoints and assert the provided checkpoints are sorted by height
+	// as required.
+	var auCheckpointsByHeight map[int32]*chaincfg.AssumeUTXOCheckpoint
+	var auPrevCheckpointHeight int32
+	if len(config.AssumeUTXOCheckpoints) > 0 {
+		auCheckpointsByHeight = make(
+			map[int32]*chaincfg.AssumeUTXOCheckpoint)
+
+		for i := range config.AssumeUTXOCheckpoints {
+			checkpoint := &config.AssumeUTXOCheckpoints[i]
+			if checkpoint.Height <= auPrevCheckpointHeight {
+				return nil, AssertError("blockchain.New " +
+					"checkpoints are not sorted by height")
+			}
+
+			auCheckpointsByHeight[checkpoint.Height] = checkpoint
+			auPrevCheckpointHeight = checkpoint.Height
+		}
+	}
+
 	params := config.ChainParams
 	targetTimespan := int64(params.TargetTimespan / time.Second)
 	targetTimePerBlock := int64(params.TargetTimePerBlock / time.Second)
 	adjustmentFactor := params.RetargetAdjustmentFactor
 	b := BlockChain{
-		checkpoints:         config.Checkpoints,
-		checkpointsByHeight: checkpointsByHeight,
-		db:                  config.DB,
-		chainParams:         params,
-		timeSource:          config.TimeSource,
-		sigCache:            config.SigCache,
-		indexManager:        config.IndexManager,
-		minRetargetTimespan: targetTimespan / adjustmentFactor,
-		maxRetargetTimespan: targetTimespan * adjustmentFactor,
-		blocksPerRetarget:   int32(targetTimespan / targetTimePerBlock),
-		index:               newBlockIndex(config.DB, params),
-		utxoCache:           newUtxoCache(config.DB, config.UtxoCacheMaxSize),
-		hashCache:           config.HashCache,
-		bestChain:           newChainView(nil),
-		bestHeader:          newChainView(nil),
-		orphans:             make(map[chainhash.Hash]*orphanBlock),
-		prevOrphans:         make(map[chainhash.Hash][]*orphanBlock),
-		warningCaches:       newThresholdCaches(vbNumBits),
-		deploymentCaches:    newThresholdCaches(chaincfg.DefinedDeployments),
-		pruneTarget:         config.Prune,
+		checkpoints:                   config.Checkpoints,
+		checkpointsByHeight:           checkpointsByHeight,
+		assumeUTXOCheckpoints:         config.AssumeUTXOCheckpoints,
+		assumeUTXOCheckpointsByHeight: auCheckpointsByHeight,
+		db:                            config.DB,
+		chainParams:                   params,
+		timeSource:                    config.TimeSource,
+		sigCache:                      config.SigCache,
+		indexManager:                  config.IndexManager,
+		minRetargetTimespan:           targetTimespan / adjustmentFactor,
+		maxRetargetTimespan:           targetTimespan * adjustmentFactor,
+		blocksPerRetarget:             int32(targetTimespan / targetTimePerBlock),
+		index:                         newBlockIndex(config.DB, params),
+		utxoCache:                     newUtxoCache(config.DB, config.UtxoCacheMaxSize),
+		hashCache:                     config.HashCache,
+		bestChain:                     newChainView(nil),
+		bestHeader:                    newChainView(nil),
+		orphans:                       make(map[chainhash.Hash]*orphanBlock),
+		prevOrphans:                   make(map[chainhash.Hash][]*orphanBlock),
+		warningCaches:                 newThresholdCaches(vbNumBits),
+		deploymentCaches:              newThresholdCaches(chaincfg.DefinedDeployments),
+		pruneTarget:                   config.Prune,
 	}
 
 	// Ensure all the deployments are synchronized with our clock if
@@ -2332,4 +2369,126 @@ func (b *BlockChain) CachedStateSize() uint64 {
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
 	return b.utxoCache.totalMemoryUsage()
+}
+
+// CheckUTXOSetIntegrity verifies that the current UTXO state matches
+// expectedHash.
+func (b *BlockChain) CheckUTXOSetIntegrity(expectedHash *[32]byte) error {
+	// Flush the cache to be sure all utxos are on disk
+	err := b.FlushUtxoCache(FlushRequired)
+	if err != nil {
+		return err
+	}
+
+	writeCompactSize := func(w io.Writer, v uint64) error {
+		var b [8]byte
+		return wire.WriteVarIntBuf(w, 0, v, b[:])
+	}
+
+	writeUint32 := func(w io.Writer, v uint32) error {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], v)
+		_, err := w.Write(b[:])
+		return err
+	}
+
+	writeUint64 := func(w io.Writer, v uint64) error {
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], v)
+		_, err := w.Write(b[:])
+		return err
+	}
+
+	writeTxOut := func(w io.Writer, outpoint *wire.OutPoint,
+		utxo *UtxoEntry) error {
+
+		// txid
+		_, err := w.Write(outpoint.Hash[:])
+		if err != nil {
+			return err
+		}
+
+		// vout index
+		err = writeUint32(w, outpoint.Index)
+		if err != nil {
+			return err
+		}
+
+		// height and coinbase flag
+		err = writeUint32(
+			w,
+			uint32(utxo.blockHeight<<1)|
+				uint32(utxo.packedFlags&tfCoinBase),
+		)
+		if err != nil {
+			return err
+		}
+
+		// amount
+		err = writeUint64(w, uint64(utxo.amount))
+		if err != nil {
+			return err
+		}
+
+		// scriptpub size
+		err = writeCompactSize(w, uint64(len(utxo.pkScript)))
+		if err != nil {
+			return err
+		}
+
+		// scriptpub
+		_, err = w.Write(utxo.pkScript)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	processUtxo := func(w io.Writer, outpoint *wire.OutPoint,
+		utxo *UtxoEntry) error {
+
+		err := writeTxOut(w, outpoint, utxo)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	hasher := sha256.New()
+
+	utxoIterator := func(k, v []byte) error {
+		outpoint := deserializeOutpoint(k)
+		utxo, err := deserializeUtxoEntry(v)
+		if err != nil {
+			return err
+		}
+
+		return processUtxo(hasher, outpoint, utxo)
+	}
+
+	err = b.db.View(func(tx database.Tx) error {
+		return tx.
+			Metadata().
+			Bucket(utxoSetBucketName).
+			ForEach(utxoIterator)
+	})
+	if err != nil {
+		return fmt.Errorf("error while computing UTXOSet hash: %w", err)
+	}
+
+	var hash [32]byte
+	hasher.Sum(hash[:0])
+	hash = sha256.Sum256(hash[:])
+
+	if hash != *expectedHash {
+		return fmt.Errorf(
+			"error while computing UTXOSet hash"+
+				" expected: %x"+
+				" current: %x",
+			*expectedHash,
+			hash,
+		)
+	}
+
+	return nil
 }
