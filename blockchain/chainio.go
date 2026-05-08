@@ -622,6 +622,14 @@ func outpointKey(outpoint wire.OutPoint) *[]byte {
 	return key
 }
 
+func deserializeOutpoint(data []byte) *wire.OutPoint {
+	r := &wire.OutPoint{}
+	copy(r.Hash[:], data[:32])
+	v, _ := deserializeVLQ(data[32:])
+	r.Index = uint32(v)
+	return r
+}
+
 // recycleOutpointKey puts the provided byte slice, which should have been
 // obtained via the outpointKey function, back on the free list.
 func recycleOutpointKey(key *[]byte) {

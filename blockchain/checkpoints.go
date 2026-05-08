@@ -36,6 +36,15 @@ func (b *BlockChain) Checkpoints() []chaincfg.Checkpoint {
 	return b.checkpoints
 }
 
+// AssumeUTXOCheckpoints returns a slice of assumeutxo checkpoints (regardless
+// of whether they are already known). When there are no checkpoints for the
+// chain, it will return nil.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) AssumeUTXOCheckpoints() []chaincfg.AssumeUTXOCheckpoint {
+	return b.assumeUTXOCheckpoints
+}
+
 // HasCheckpoints returns whether this BlockChain has checkpoints defined.
 //
 // This function is safe for concurrent access.
