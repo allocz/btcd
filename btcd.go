@@ -265,6 +265,10 @@ func btcdMain(serverChan chan<- *server) error {
 	// Create server and start it.
 	server, err := newServer(cfg.Listeners, cfg.AgentBlacklist,
 		cfg.AgentWhitelist, db, activeNetParams.Params, interrupt)
+	// Don't start the server if we reached stopHeight
+	if err == errStopHeightReached {
+		return nil
+	}
 	if err != nil {
 		// TODO: this logging could do with some beautifying.
 		btcdLog.Errorf("Unable to start server on %v: %v",

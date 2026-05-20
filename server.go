@@ -61,6 +61,12 @@ const (
 )
 
 var (
+	// errStopHeightReached is returned from newServer function when
+	// best height is greater or equal stopAtHeight value
+	errStopHeightReached = errors.New("stop height reached")
+)
+
+var (
 	// userAgentName is the user agent name and is used to help identify
 	// ourselves to other bitcoin peers.
 	userAgentName = "btcd"
@@ -296,7 +302,7 @@ type serverPeer struct {
 	addressesMtx   sync.RWMutex
 	knownAddresses lru.Cache
 	banScore       connmgr.DynamicBanScore
-	quit chan struct{}
+	quit           chan struct{}
 
 	// Closed by verAckOnce when OnVerAck fires.
 	verAckCh   chan struct{}
@@ -2995,6 +3001,14 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	if err != nil {
 		return nil, err
 	}
+	if sh := int32(cfg.StopAtHeight); sh > 0 {
+		bsh := s.chain.BestSnapshot().Height
+		if bsh >= sh {
+			btcdLog.Infof("Stopping because stopatheight is "+
+				"%d and chainstate best height is %d", sh, bsh)
+			return nil, errStopHeightReached
+		}
+	}
 
 	// Search for a FeeEstimator state in the database. If none can be found
 	// or if it cannot be loaded, create a new one.
@@ -3058,6 +3072,7 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 		Chain:              s.chain,
 		TxMemPool:          s.txMemPool,
 		ChainParams:        s.chainParams,
+		StopHeight:         int32(cfg.StopAtHeight),
 		DisableCheckpoints: cfg.DisableCheckpoints,
 		MaxPeers:           cfg.MaxPeers,
 		FeeEstimator:       s.feeEstimator,

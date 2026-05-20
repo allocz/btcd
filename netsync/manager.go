@@ -6,8 +6,10 @@ package netsync
 
 import (
 	"math/rand"
+	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -183,6 +185,7 @@ type SyncManager struct {
 	chain          *blockchain.BlockChain
 	txMemPool      *mempool.TxPool
 	chainParams    *chaincfg.Params
+	stopHeight     int32
 	progressLogger *blockProgressLogger
 	msgChan        chan interface{}
 	wg             sync.WaitGroup
@@ -715,6 +718,11 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		}
 	}
 
+	// Do not start processing the block if we are shutting down
+	if atomic.LoadInt32(&sm.shutdown) > 0 {
+		return
+	}
+
 	// Check if the block is eligible for less validation since the headers
 	// have already been verified to link together and are valid up to the
 	// next checkpoint.
@@ -824,6 +832,35 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 			go sm.peerNotifier.UpdatePeerHeights(blkHashUpdate, heightUpdate,
 				peer)
 		}
+	}
+
+	// Avoid processing the next block if we are at or after stopHeight
+	if sm.stopHeight > 0 && heightUpdate >= sm.stopHeight {
+		shutdown := atomic.LoadInt32(&sm.shutdown)
+		if shutdown < 1 {
+			atomic.AddInt32(&sm.shutdown, 1)
+		}
+
+		log.Infof("Reached stop height, stopping.")
+
+		// btcd will stop before processing any new block, so let's
+		// write all the cache coins to disk now
+		sm.chain.FlushUtxoCache(blockchain.FlushRequired)
+
+		// TODO(allocz): if we just call sm.Stop(), we will get stuck in
+		// a state were the process still runing waiting indefinitely
+		// for other goroutines to stop, so maybe a global stop function
+		// would be useful to register from where the stop call came
+		// from and also notify all goroutines to finish their job as
+		// soon as possible.
+		pid := os.Getpid()
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			log.Errorf("Error finding current process: %v",
+				err)
+			return
+		}
+		proc.Signal(syscall.SIGTERM)
 	}
 
 	// If we are not in the initial block download mode, it's a good time to
@@ -1627,6 +1664,7 @@ func New(config *Config) (*SyncManager, error) {
 		chain:           config.Chain,
 		txMemPool:       config.TxMemPool,
 		chainParams:     config.ChainParams,
+		stopHeight:      config.StopHeight,
 		rejectedTxns:    make(map[chainhash.Hash]struct{}),
 		requestedTxns:   make(map[chainhash.Hash]struct{}),
 		requestedBlocks: make(map[chainhash.Hash]struct{}),

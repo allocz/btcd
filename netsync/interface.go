@@ -33,6 +33,7 @@ type Config struct {
 	Chain        *blockchain.BlockChain
 	TxMemPool    *mempool.TxPool
 	ChainParams  *chaincfg.Params
+	StopHeight   int32
 
 	DisableCheckpoints bool
 	MaxPeers           int
