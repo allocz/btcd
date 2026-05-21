@@ -5,6 +5,7 @@
 package netsync
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -209,6 +210,34 @@ type SyncManager struct {
 // checkpoints.
 func (sm *SyncManager) findNextHeaderCheckpoint(height int32) *chaincfg.Checkpoint {
 	checkpoints := sm.chain.Checkpoints()
+	if len(checkpoints) == 0 {
+		return nil
+	}
+
+	// There is no next checkpoint if the height is already after the final
+	// checkpoint.
+	finalCheckpoint := &checkpoints[len(checkpoints)-1]
+	if height >= finalCheckpoint.Height {
+		return nil
+	}
+
+	// Find the next checkpoint.
+	nextCheckpoint := finalCheckpoint
+	for i := len(checkpoints) - 2; i >= 0; i-- {
+		if height >= checkpoints[i].Height {
+			break
+		}
+		nextCheckpoint = &checkpoints[i]
+	}
+	return nextCheckpoint
+}
+
+// findNextHeaderAssumeUTXOCheckpoint returns the next assumeutxo checkpoint
+// after the passed height. It returns nil when there is not one.
+func (sm *SyncManager) findNextHeaderAssumeUTXOCheckpoint(
+	height int32) *chaincfg.AssumeUTXOCheckpoint {
+
+	checkpoints := sm.chain.AssumeUTXOCheckpoints()
 	if len(checkpoints) == 0 {
 		return nil
 	}
@@ -690,6 +719,41 @@ func (sm *SyncManager) checkHeadersList(blockHash *chainhash.Hash) (
 	return isCheckpointBlock, behaviorFlags
 }
 
+// checkAssumeUTXO checks if the sync manager is in the initial block download
+// mode and returns if the given block hash is a assumeUTXO block and the
+// behavior flags for this block.  If the block is still under the checkpoint,
+// then it's given the assumeUTXO flag.
+func (sm *SyncManager) checkAssumeUTXO(utxoSetHashOut *[32]byte,
+	blockHash *chainhash.Hash, flags blockchain.BehaviorFlags) (bool,
+	blockchain.BehaviorFlags) {
+
+	if flags&blockchain.BFFastAdd == 0 {
+		return false, flags
+	}
+
+	isAssumeUTXOBlock := false
+
+	height, err := sm.chain.HeaderHeightByHash(*blockHash)
+	if err != nil {
+		return false, flags
+	}
+
+	// Since findNextHeaderCheckpoint returns the next checkpoint after the
+	// passed height, we do a -1 to include the current block.
+	checkpoint := sm.findNextHeaderAssumeUTXOCheckpoint(height - 1)
+	if checkpoint == nil {
+		return false, flags
+	}
+
+	flags |= blockchain.BFAssumeUTXO
+	if *blockHash == checkpoint.BlockHash {
+		isAssumeUTXOBlock = true
+		copy(utxoSetHashOut[:], checkpoint.UTXOSetHash[:])
+	}
+
+	return isAssumeUTXOBlock, flags
+}
+
 // handleBlockMsg handles block messages from all peers.
 func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	peer := bmsg.peer
@@ -719,6 +783,12 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	// have already been verified to link together and are valid up to the
 	// next checkpoint.
 	isCheckpointBlock, behaviorFlags := sm.checkHeadersList(blockHash)
+
+	// Check if the block is eligible to assumeUTXO, which significantly
+	// improves IBD speed by reducing the I/O during block validation
+	var utxoSetHash [32]byte
+	isAssumeUTXOBlock, behaviorFlags := sm.checkAssumeUTXO(&utxoSetHash,
+		blockHash, behaviorFlags)
 
 	// Remove block from request maps. Either chain will know about it and
 	// so we shouldn't have any more instances of trying to fetch it, or we
@@ -834,6 +904,24 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 			log.Errorf("Error while flushing the blockchain cache: %v", err)
 		}
 		return
+	}
+
+	// If we're on an assumeUTXO block, perform the verification of the
+	// utxoset
+	if isAssumeUTXOBlock {
+		log.Infof("Reached assumeUTXO block, performing utxoset validation")
+		start := time.Now()
+		err := sm.chain.CheckUTXOSetIntegrity(&utxoSetHash)
+		if err != nil {
+			// we are panicking here because we can't proceed with
+			// an invalid UTXOSet
+			err2 := fmt.Errorf(
+				"error checking UTXOSet integrity: %w", err)
+			log.Error(err2)
+			panic(err2)
+		}
+		log.Infof("utxoset validation completed in %fs",
+			time.Since(start).Seconds())
 	}
 
 	// If we're on a checkpointed block, check if we still have checkpoints

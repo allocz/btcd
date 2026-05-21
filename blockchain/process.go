@@ -30,6 +30,12 @@ const (
 	// not be performed.
 	BFNoPoWCheck
 
+	// BFAssumeUTXO may be set to indicate that several checks can be
+	// avoided for the block since it is already known to fit into the chain
+	// due to already proving it correct links into the chain up to a known
+	// AssumeUTXO checkpoint.
+	BFAssumeUTXO
+
 	// BFNone is a convenience value to specifically indicate no flags.
 	BFNone BehaviorFlags = 0
 )
