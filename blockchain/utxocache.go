@@ -341,7 +341,7 @@ func (s *utxoCache) addTxOut(outpoint wire.OutPoint, txOut *wire.TxOut, isCoinBa
 	blockHeight int32) error {
 
 	// Don't add provably unspendable outputs.
-	if txscript.IsUnspendable(txOut.PkScript) {
+	if txscript.IsOPReturnOrExceedsMaxSize(txOut.PkScript) {
 		return nil
 	}
 
