@@ -7,7 +7,10 @@ package blockchain
 
 import (
 	"container/list"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -2332,4 +2335,153 @@ func (b *BlockChain) CachedStateSize() uint64 {
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
 	return b.utxoCache.totalMemoryUsage()
+}
+
+type utxoSetStats struct {
+	satoshiAmount int64
+	utxoCount     uint64
+	utxoSetHash   chainhash.Hash
+}
+
+// utxoSetStatsGen flushes the utxo cache and iterate over all utxos, computing
+// the utxoSetStats, which on heigth N has the same hash as hardcoded on
+// bitcoind assumeutxo parameters
+func (b *BlockChain) utxoSetStatsGen() (utxoSetStats, error) {
+	var z utxoSetStats
+
+	// Flush the cache to be sure all utxos are on disk
+	err := b.FlushUtxoCache(FlushRequired)
+	if err != nil {
+		return z, err
+	}
+
+	writeCompactSize := func(w io.Writer, v uint64) error {
+		var b [8]byte
+		return wire.WriteVarIntBuf(w, 0, v, b[:])
+	}
+
+	writeUint32 := func(w io.Writer, v uint32) error {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], v)
+		_, err := w.Write(b[:])
+		return err
+	}
+
+	writeUint64 := func(w io.Writer, v uint64) error {
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], v)
+		_, err := w.Write(b[:])
+		return err
+	}
+
+	writeTxOut := func(w io.Writer, outpoint *wire.OutPoint,
+		utxo *UtxoEntry) error {
+
+		// txid
+		_, err := w.Write(outpoint.Hash[:])
+		if err != nil {
+			return err
+		}
+
+		// vout index
+		err = writeUint32(w, outpoint.Index)
+		if err != nil {
+			return err
+		}
+
+		// height and coinbase flag
+		err = writeUint32(
+			w,
+			uint32(utxo.blockHeight<<1)|
+				uint32(utxo.packedFlags&tfCoinBase),
+		)
+		if err != nil {
+			return err
+		}
+
+		// amount
+		err = writeUint64(w, uint64(utxo.amount))
+		if err != nil {
+			return err
+		}
+
+		// scriptpub size
+		err = writeCompactSize(w, uint64(len(utxo.pkScript)))
+		if err != nil {
+			return err
+		}
+
+		// scriptpub
+		_, err = w.Write(utxo.pkScript)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	processUtxo := func(w io.Writer, outpoint *wire.OutPoint,
+		utxo *UtxoEntry) error {
+
+		err := writeTxOut(w, outpoint, utxo)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	hasher := sha256.New()
+	var result utxoSetStats
+
+	utxoIterator := func(k, v []byte) error {
+		outpoint := deserializeOutpoint(k)
+		utxo, err := deserializeUtxoEntry(v)
+		if err != nil {
+			return err
+		}
+
+		err = processUtxo(hasher, outpoint, utxo)
+		if err != nil {
+			return err
+		}
+
+		result.satoshiAmount += utxo.Amount()
+		result.utxoCount++
+
+		return nil
+	}
+
+	err = b.db.View(func(tx database.Tx) error {
+		return tx.
+			Metadata().
+			Bucket(utxoSetBucketName).
+			ForEach(utxoIterator)
+	})
+	if err != nil {
+		return z, fmt.Errorf("error while computing UTXOSet hash: %w",
+			err)
+	}
+
+	var hash [32]byte
+	hasher.Sum(hash[:0])
+	result.utxoSetHash = sha256.Sum256(hash[:])
+	return result, nil
+}
+
+// CheckUTXOSet verifies that the current UTXO state matches expectedHash.
+func (b *BlockChain) CheckUTXOSet(expectedHash *chainhash.Hash) error {
+	stats, err := b.utxoSetStatsGen()
+	if err != nil {
+		return err
+	}
+	if stats.utxoSetHash != *expectedHash {
+		return fmt.Errorf(
+			"error while computing UTXOSet hash"+
+				" expected: %s"+
+				" current: %s",
+			*expectedHash,
+			stats.utxoSetHash,
+		)
+	}
+
+	return nil
 }

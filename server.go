@@ -10,11 +10,13 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
 	"net"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -296,7 +298,7 @@ type serverPeer struct {
 	addressesMtx   sync.RWMutex
 	knownAddresses lru.Cache
 	banScore       connmgr.DynamicBanScore
-	quit chan struct{}
+	quit           chan struct{}
 
 	// Closed by verAckOnce when OnVerAck fires.
 	verAckCh   chan struct{}
@@ -3053,10 +3055,16 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	}
 	s.txMemPool = mempool.New(&txC)
 
+	utxoSetCheck, err := parseUTXOSetCheck(cfg.AddUTXOSetCheck)
+	if err != nil {
+		return nil, fmt.Errorf("parse UTXOSetCheck: %w", err)
+	}
+
 	s.syncManager, err = netsync.New(&netsync.Config{
 		PeerNotifier:       &s,
 		Chain:              s.chain,
 		TxMemPool:          s.txMemPool,
+		UTXOSetCheck:       utxoSetCheck,
 		ChainParams:        s.chainParams,
 		DisableCheckpoints: cfg.DisableCheckpoints,
 		MaxPeers:           cfg.MaxPeers,
@@ -3493,6 +3501,38 @@ func mergeCheckpoints(defaultCheckpoints, additional []chaincfg.Checkpoint) []ch
 	}
 	sort.Sort(checkpointSorter(checkpoints))
 	return checkpoints
+}
+
+// parseUTXOSetCheck takes the UTXOSetCheck config string and parses it into
+// the UTXOSetCheck structure, if the string is empty, an empty structure will
+// be parsed
+func parseUTXOSetCheck(data string) (chaincfg.UTXOSetCheck, error) {
+	var z chaincfg.UTXOSetCheck
+	if data == "" {
+		return z, nil
+	}
+	split := strings.Split(cfg.AddUTXOSetCheck, ":")
+	if l := len(split); l != 2 {
+		return z, fmt.Errorf(
+			"addutxosetcheck: unexpected colon count %d", l)
+	}
+	height, err := strconv.ParseInt(split[0], 10, 32)
+	if err != nil {
+		return z, fmt.Errorf("addutxosetcheck.height: %w", err)
+	}
+	utxoSetHash, err := hex.DecodeString(split[1])
+	if err != nil {
+		return z, fmt.Errorf("addutxosetcheck.hash: %w", err)
+	}
+	if l := len(utxoSetHash); l != 32 {
+		return z, fmt.Errorf(
+			"addutxosetcheck.hash: invalid length %d", l)
+	}
+	slices.Reverse(utxoSetHash)
+	return chaincfg.UTXOSetCheck{
+		Height:      int32(height),
+		UTXOSetHash: chainhash.Hash(utxoSetHash),
+	}, nil
 }
 
 // HasUndesiredUserAgent determines whether the server should continue to pursue

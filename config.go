@@ -102,6 +102,7 @@ type config struct {
 	AddCheckpoints       []string      `long:"addcheckpoint" description:"Add a custom checkpoint.  Format: '<height>:<hash>'"`
 	AddPeers             []string      `short:"a" long:"addpeer" description:"Add a peer to connect with at startup"`
 	AddrIndex            bool          `long:"addrindex" description:"Maintain a full address-based transaction index which makes the searchrawtransactions RPC available"`
+	AddUTXOSetCheck      string        `long:"addutxosetcheck" description:"Add an UTXO hash assertion. Format: '<height>:<utxosethash>'"`
 	AgentBlacklist       []string      `long:"agentblacklist" description:"A comma separated list of user-agent substrings which will cause btcd to reject any peers whose user-agent contains any of the blacklisted substrings."`
 	AgentWhitelist       []string      `long:"agentwhitelist" description:"A comma separated list of user-agent substrings which will cause btcd to require all peers' user-agents to contain one of the whitelisted substrings. The blacklist is applied before the whitelist, and an empty whitelist will allow all agents that do not fail the blacklist."`
 	BanDuration          time.Duration `long:"banduration" description:"How long to ban misbehaving peers.  Valid time units are {s, m, h}.  Minimum 1 second"`

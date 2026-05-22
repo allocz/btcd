@@ -32,6 +32,7 @@ type Config struct {
 	PeerNotifier PeerNotifier
 	Chain        *blockchain.BlockChain
 	TxMemPool    *mempool.TxPool
+	UTXOSetCheck chaincfg.UTXOSetCheck
 	ChainParams  *chaincfg.Params
 
 	DisableCheckpoints bool
