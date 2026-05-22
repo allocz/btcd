@@ -5,6 +5,7 @@
 package netsync
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -182,6 +183,7 @@ type SyncManager struct {
 	shutdown       int32
 	chain          *blockchain.BlockChain
 	txMemPool      *mempool.TxPool
+	utxoSetCheck   chaincfg.UTXOSetCheck
 	chainParams    *chaincfg.Params
 	progressLogger *blockProgressLogger
 	msgChan        chan interface{}
@@ -822,6 +824,39 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 			go sm.peerNotifier.UpdatePeerHeights(blkHashUpdate, heightUpdate,
 				peer)
 		}
+	}
+
+	// Perform the verification of the UTXOSet when we reach
+	// utxoSetCheck.Height
+	if h := sm.utxoSetCheck.Height; h != 0 && heightUpdate == h {
+		log.Infof("perform utxosetcheck verification; height %d",
+			heightUpdate)
+
+		start := time.Now()
+		stats, err := sm.chain.CalcUTXOSetStats()
+		if err != nil {
+			// This error will happen when have something wrong with
+			// your disk, there's a bug in btcd or the utxoset hash
+			// is wrong.
+			//
+			// Note that at this point, something is badly wrong
+			// and we can't continue
+			err := fmt.Errorf("failed to calculate utxosetcheck: "+
+				"%s", err)
+			panic(err)
+		}
+
+		if sm.utxoSetCheck.UTXOSetHash != stats.UTXOSetHash {
+			// We can't continue with inconsistent UTXOSet state.
+			err := fmt.Errorf("utxosetcheck failed; "+
+				"expected %s current %s; utxocount %d sats %d",
+				sm.utxoSetCheck.UTXOSetHash, stats.UTXOSetHash,
+				stats.UTXOCount, stats.SatoshiAmount)
+			panic(err)
+		}
+
+		log.Infof("UTXOSetCheck completed successfully in %.2fs",
+			time.Since(start).Seconds())
 	}
 
 	// If we are not in the initial block download mode, it's a good time to
@@ -1625,6 +1660,7 @@ func New(config *Config) (*SyncManager, error) {
 		peerNotifier:    config.PeerNotifier,
 		chain:           config.Chain,
 		txMemPool:       config.TxMemPool,
+		utxoSetCheck:    config.UTXOSetCheck,
 		chainParams:     config.ChainParams,
 		rejectedTxns:    make(map[chainhash.Hash]struct{}),
 		requestedTxns:   make(map[chainhash.Hash]struct{}),

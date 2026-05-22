@@ -1277,6 +1277,11 @@ func newHashFromStr(hexStr string) *chainhash.Hash {
 	return hash
 }
 
+type UTXOSetCheck struct {
+	Height   int32
+	UTXOSetHash chainhash.Hash
+}
+
 func init() {
 	// Register all default networks when the package is initialized.
 	mustRegister(&MainNetParams)
