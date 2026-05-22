@@ -671,3 +671,41 @@ func TestIsUnspendable(t *testing.T) {
 		}
 	}
 }
+
+func TestIsOpReturnOrExceedsMaxSize(t *testing.T) {
+	t.Parallel()
+
+	var tooLongScript [MaxScriptSize + 1]byte
+
+	tests := []struct {
+		name     string
+		pkScript []byte
+		expected bool
+	}{
+		{
+			"start with OP_RETURN",
+			[]byte{OP_RETURN},
+			true,
+		},
+		{
+			"too long",
+			tooLongScript[:],
+			true,
+		},
+		{
+			"max size",
+			tooLongScript[:MaxScriptSize],
+			false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			r := IsOPReturnOrExceedsMaxSize(test.pkScript)
+			if test.expected != r {
+				t.Errorf("expected %t, current %t",
+					test.expected, r)
+			}
+		})
+	}
+}
