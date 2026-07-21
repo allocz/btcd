@@ -63,6 +63,10 @@ var (
 	// transactions outputs that are spent in each block.
 	spendJournalBucketName = []byte("spendjournal")
 
+	// spendJournalStatsKeyName is the name of the db key used to store the
+	// total bytes used by the spend journal.
+	spendJournalStatsKeyName = []byte("spendjournalstats")
+
 	// utxoSetVersionKeyName is the name of the db key used to store the
 	// version of the utxo set currently in the database.
 	utxoSetVersionKeyName = []byte("utxosetversion")
@@ -488,6 +492,14 @@ func dbFetchSpendJournalEntry(dbTx database.Tx, block *btcutil.Block) ([]SpentTx
 func dbPutSpendJournalEntry(dbTx database.Tx, blockHash *chainhash.Hash, stxos []SpentTxOut) error {
 	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
 	serialized := serializeSpendJournalEntry(stxos)
+
+	// update spend journal stats
+	pLen := int64(len(blockHash) + len(serialized))
+	err := dbUpdateSpendJournalSize(dbTx, pLen)
+	if err != nil {
+		return err
+	}
+
 	return spendBucket.Put(blockHash[:], serialized)
 }
 
@@ -495,6 +507,15 @@ func dbPutSpendJournalEntry(dbTx database.Tx, blockHash *chainhash.Hash, stxos [
 // spend journal entry for the passed block hash.
 func dbRemoveSpendJournalEntry(dbTx database.Tx, blockHash *chainhash.Hash) error {
 	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
+
+	// update spend journal stats
+	serialized := spendBucket.Get(blockHash[:])
+	dLen := int64(len(blockHash) + len(serialized)) * -1
+	err := dbUpdateSpendJournalSize(dbTx, dLen)
+	if err != nil {
+		return err
+	}
+
 	return spendBucket.Delete(blockHash[:])
 }
 
@@ -503,14 +524,241 @@ func dbRemoveSpendJournalEntry(dbTx database.Tx, blockHash *chainhash.Hash) erro
 func dbPruneSpendJournalEntry(dbTx database.Tx, blockHashes []chainhash.Hash) error {
 	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
 
+	var deletedSize int64
 	for _, blockHash := range blockHashes {
+		serialized := spendBucket.Get(blockHash[:])
+		deletedSize += int64(len(blockHash) + len(serialized))
+
 		err := spendBucket.Delete(blockHash[:])
 		if err != nil {
 			return err
 		}
 	}
 
+	// Update spend journal stats.
+	err := dbUpdateSpendJournalSize(dbTx, deletedSize * -1)
+	if err != nil {
+		return err
+	}
+
 	return nil
+}
+
+type spendJournalStats struct {
+	journalSize uint64
+	nextPruneHeight uint32
+}
+
+func dbFetchSpendJournalStats(dbTx database.Tx) (spendJournalStats, error) {
+	var zr spendJournalStats
+
+	data := dbTx.Metadata().Get(spendJournalStatsKeyName)
+	if l := len(data); l != 8 + 4 {
+		return zr, fmt.Errorf("unexpected data length: %d", l)
+	}
+	var res spendJournalStats
+	res.journalSize = byteOrder.Uint64(data[:])
+	res.nextPruneHeight = byteOrder.Uint32(data[8:])
+
+	return res, nil
+}
+
+func dbPutSpendJournalStats(dbTx database.Tx, s spendJournalStats) error {
+	var serialized [8+4]byte
+	byteOrder.PutUint64(serialized[:], s.journalSize)
+	byteOrder.PutUint32(serialized[8:], s.nextPruneHeight)
+
+	return dbTx.Metadata().Put(spendJournalStatsKeyName, serialized[:])
+}
+
+// dbUpdateSpendJournalSize updates the spend journal stats when new entries
+// are created or old entries are deleted.
+func dbUpdateSpendJournalSize(dbTx database.Tx, sizeDeltaBytes int64) error {
+	sjs, err := dbFetchSpendJournalStats(dbTx)
+	if err != nil {
+		return err
+	}
+
+	sjs.journalSize = uint64(int64(sjs.journalSize) + sizeDeltaBytes)
+
+	return dbPutSpendJournalStats(dbTx, sjs)
+}
+
+func dbScanSpendJournal(dbTx database.Tx,
+	interrupt <-chan struct{}) (spendJournalStats, error) {
+
+	var zr spendJournalStats
+	funcName := "dbScanSpendJournal"
+
+	journalC := dbTx.Metadata().Bucket(spendJournalBucketName).Cursor()
+	hashBucket := dbTx.Metadata().Bucket(hashIndexBucketName)
+
+	// Iterate over all spend journal entries to calculate the spent
+	// journal stats.
+	var sjs spendJournalStats
+	var i int
+	for ok := journalC.First(); ok; ok, i = journalC.Next(), i+1 {
+		select{
+		case <-interrupt:
+			return zr, errInterruptRequested
+		default:
+		}
+
+		hash := journalC.Key()
+
+		sHeight := hashBucket.Get(hash)
+		if l := len(sHeight); l != 4 {
+			return zr, fmt.Errorf("%s: unexpected serialized " +
+				"block height length: %d", funcName, l)
+		}
+		height := byteOrder.Uint32(sHeight)
+		if i == 0 {
+			sjs.nextPruneHeight = height
+		} else {
+			sjs.nextPruneHeight = min(sjs.nextPruneHeight, height)
+		}
+
+		sjs.journalSize += uint64(len(hash) + len(journalC.Value()))
+	}
+
+	return sjs, nil
+}
+
+func dbPruneSpendJournalSizeSlow(db database.DB, targetSize uint64,
+	interrupt <-chan struct{}) error {
+
+	funcName := "dbPruneSpendJournalSize"
+
+	// Return early if spent journal pruning is not enabled.
+	if targetSize == 0 {
+		return nil
+	}
+
+	log.Info("start spend journal pruning...")
+
+	// Limit transaction size.
+	const maxDelBytesPerTx = 10 << 20
+	for run := true; run;  {
+		// Since we are in a transaction, in case of errors the pruning
+		// may be partial, but the spend journal size will never become
+		// corrupted.
+		err := db.Update(func(tx database.Tx) error {
+			sjs, err := dbFetchSpendJournalStats(tx)
+			if err != nil {
+				return fmt.Errorf("%s: %v", funcName, err)
+			}
+
+			// Target reached, so we can stop.
+			if sjs.journalSize <= targetSize {
+				run = false
+				return nil
+			}
+
+			spendBucket := tx.Metadata().
+				Bucket(spendJournalBucketName)
+
+			// Prune the old entries.
+			var deletedBytes uint64
+			var height uint32
+			for height = sjs.nextPruneHeight;
+				deletedBytes < maxDelBytesPerTx &&
+				sjs.journalSize - deletedBytes > targetSize;
+				height++ {
+
+				select{
+				case <-interrupt:
+					return errInterruptRequested
+				default:
+				}
+
+				hash, err := dbFetchHashByHeight(tx,
+					int32(height))
+				if err != nil {
+					return fmt.Errorf("%s: %v", funcName,
+						err)
+				}
+
+				entryData := spendBucket.Get(hash[:])
+				if entryData == nil {
+					continue
+				}
+
+				err = spendBucket.Delete(hash[:])
+				if err != nil {
+					return fmt.Errorf("%s: %v", funcName,
+						err)
+				}
+
+				deletedBytes += uint64(len(entryData) +
+					len(hash))
+
+				log.Debugf("spend journal pruning at height %d",
+					height)
+			}
+
+			// Update journal size.
+			sjs.journalSize -= deletedBytes
+			sjs.nextPruneHeight = height
+			err = dbPutSpendJournalStats(tx, sjs)
+			if err != nil {
+				return fmt.Errorf("%s: %v", funcName, err)
+			}
+
+			log.Infof("spend journal pruned bytes: %d",
+				deletedBytes)
+
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("%s: %v", funcName, err)
+		}
+	}
+
+	log.Info("spend journal pruning completed")
+
+	return nil
+}
+
+func dbPruneSpendJournalSize(dbTx database.Tx, targetSize uint64) error {
+	// Return early if spent journal pruning is not enabled.
+	if targetSize == 0 {
+		return nil
+	}
+
+	stats, err := dbFetchSpendJournalStats(dbTx)
+	if err != nil {
+		return err
+	}
+
+	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
+
+	var deletedBytes uint64
+	var height uint32
+	for height = stats.nextPruneHeight;
+		stats.journalSize - deletedBytes > targetSize;
+		height++ {
+
+		hash, err := dbFetchHashByHeight(dbTx, int32(height))
+		if err != nil {
+			return err
+		}
+
+		serialized := spendBucket.Get(hash[:])
+		if serialized == nil {
+			continue
+		}
+
+		err = spendBucket.Delete(hash[:])
+		if err != nil {
+			return err
+		}
+
+		deletedBytes += uint64(len(hash) + len(serialized))
+	}
+
+	stats.journalSize -= deletedBytes
+	stats.nextPruneHeight = height
+	return dbPutSpendJournalStats(dbTx, stats)
 }
 
 // -----------------------------------------------------------------------------
@@ -1193,6 +1441,8 @@ func (b *BlockChain) initChainState() error {
 	if !hasBlockIndex {
 		err := migrateBlockIndex(b.db)
 		if err != nil {
+			// TODO(allocz): is this correct? Returning nil on
+			// error. I think we need documentation here.
 			return nil
 		}
 	}

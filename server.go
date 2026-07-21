@@ -2981,16 +2981,17 @@ func newServer(listenAddrs, agentBlacklist, agentWhitelist []string,
 	// Create a new block chain instance with the appropriate configuration.
 	var err error
 	s.chain, err = blockchain.New(&blockchain.Config{
-		DB:               s.db,
-		Interrupt:        interrupt,
-		ChainParams:      s.chainParams,
-		Checkpoints:      checkpoints,
-		TimeSource:       s.timeSource,
-		SigCache:         s.sigCache,
-		IndexManager:     indexManager,
-		HashCache:        s.hashCache,
-		Prune:            cfg.Prune * 1024 * 1024,
-		UtxoCacheMaxSize: uint64(cfg.UtxoCacheMaxSizeMiB) * 1024 * 1024,
+		DB:                s.db,
+		Interrupt:         interrupt,
+		ChainParams:       s.chainParams,
+		Checkpoints:       checkpoints,
+		TimeSource:        s.timeSource,
+		SigCache:          s.sigCache,
+		IndexManager:      indexManager,
+		HashCache:         s.hashCache,
+		Prune:             cfg.Prune << 20,
+		PruneSpendJournal: cfg.PruneSpendJournal << 20,
+		UtxoCacheMaxSize:  uint64(cfg.UtxoCacheMaxSizeMiB) << 20,
 	})
 	if err != nil {
 		return nil, err

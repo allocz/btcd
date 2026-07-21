@@ -145,6 +145,60 @@ func migrateBlockIndex(db database.DB) error {
 	return nil
 }
 
+// setupSpendJournalPruning checks if the spend journal stats exists in the
+// database, if negative, scans the spent journal to initialize the stats. Then
+// it prunes the spend journal if needed.
+func setupSpendJournalPruning(db database.DB, journalPruneTarget uint64,
+	interrupt <-chan struct{}) error {
+
+	var hasStats bool
+	err := db.Update(func(tx database.Tx) error {
+		serialized := tx.Metadata().Get(spendJournalStatsKeyName)
+		if len(serialized) != 0 {
+			hasStats = true
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// In case the index does not exists, we initialize the journal stats.
+	//
+	// The first scan may take a long time but this is only executed once.
+	if !hasStats {
+		err := db.Update(func(tx database.Tx) error {
+			stats, err := dbScanSpendJournal(tx, interrupt)
+			if err != nil {
+				return err
+			}
+			return dbPutSpendJournalStats(tx, stats)
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	var stats spendJournalStats
+	err = db.View(func(tx database.Tx) error {
+		var err error
+		stats, err = dbFetchSpendJournalStats(tx)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	log.Infof("spend journal size is %d bytes", stats.journalSize)
+
+	// Prune the spend journal if needed, this may take a long time in case
+	// there are too many entries to delete, for example when pruning the
+	// spend journal of an archive node for the first time.
+	return dbPruneSpendJournalSizeSlow(db, journalPruneTarget, interrupt)
+}
+
 // readBlockTree reads the old block index bucket and constructs a mapping of
 // each block to its parent block and all child blocks. This mapping represents
 // the full tree of blocks. This function does not populate the height or

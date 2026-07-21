@@ -70,6 +70,7 @@ const (
 	defaultTxIndex               = false
 	defaultAddrIndex             = false
 	pruneMinSize                 = 1536
+	pruneSpendJournalMinSize     = 1152
 )
 
 var (
@@ -152,6 +153,7 @@ type config struct {
 	ProxyPass            string        `long:"proxypass" default-mask:"-" description:"Password for proxy server"`
 	ProxyUser            string        `long:"proxyuser" description:"Username for proxy server"`
 	Prune                uint64        `long:"prune" description:"Prune already validated blocks from the database. Must specify a target size in MiB (minimum value of 1536, default value of 0 will disable pruning)"`
+	PruneSpendJournal    uint64        `long:"prunespendjournal" description:"Prune old journal entries from the database. Target must be specified in MiB (minimum value of 1152), 0 is equivalent to not passing the flag"`
 	RegressionTest       bool          `long:"regtest" description:"Use the regression test network"`
 	RejectNonStd         bool          `long:"rejectnonstd" description:"Reject non-standard transactions regardless of the default settings for the active network."`
 	RejectReplacement    bool          `long:"rejectreplacement" description:"Reject transactions that attempt to replace existing transactions within the mempool through the Replace-By-Fee (RBF) signaling policy."`
@@ -1165,6 +1167,17 @@ func loadConfig() (*config, []string, error) {
 	if cfg.Prune != 0 && cfg.AddrIndex {
 		err := fmt.Errorf("%s: the --prune and --addrindex options may "+
 			"not be activated at the same time", funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	if cfg.PruneSpendJournal != 0 &&
+		cfg.PruneSpendJournal < pruneSpendJournalMinSize {
+
+		err := fmt.Errorf("%s: the minimum value for " +
+			"--prunespendjournal is %d. Got %d", funcName,
+			pruneSpendJournalMinSize, cfg.PruneSpendJournal)
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, nil, err

@@ -119,6 +119,10 @@ type BlockChain struct {
 	// is pruned.
 	pruneTarget uint64
 
+	// pruneSpendJournalTarget is the size in bytes the database tagets for
+	// when the spend journal is pruned.
+	pruneSpendJournalTarget uint64
+
 	// These fields are related to the memory block index.  They both have
 	// their own locks, however they are often also protected by the chain
 	// lock to help prevent logic races when blocks are being processed.
@@ -654,6 +658,12 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 					}
 				}
 			}
+		}
+
+		// Prune the spend journal if needed.
+		err = dbPruneSpendJournalSize(dbTx, b.pruneSpendJournalTarget)
+		if err != nil {
+			return err
 		}
 
 		// Update best block state.
@@ -2213,6 +2223,11 @@ type Config struct {
 	// will target for with block files.  Prune at 0 specifies that no
 	// blocks will be deleted.
 	Prune uint64
+
+	// PruneSpendJournal specifies the target database usage (in bytes) for
+	// the spent journal. A PruneSpendJournal of 0 means no journal pruning
+	// at all.
+	PruneSpendJournal uint64
 }
 
 // New returns a BlockChain instance using the provided configuration details.
@@ -2251,26 +2266,27 @@ func New(config *Config) (*BlockChain, error) {
 	targetTimePerBlock := int64(params.TargetTimePerBlock / time.Second)
 	adjustmentFactor := params.RetargetAdjustmentFactor
 	b := BlockChain{
-		checkpoints:         config.Checkpoints,
-		checkpointsByHeight: checkpointsByHeight,
-		db:                  config.DB,
-		chainParams:         params,
-		timeSource:          config.TimeSource,
-		sigCache:            config.SigCache,
-		indexManager:        config.IndexManager,
-		minRetargetTimespan: targetTimespan / adjustmentFactor,
-		maxRetargetTimespan: targetTimespan * adjustmentFactor,
-		blocksPerRetarget:   int32(targetTimespan / targetTimePerBlock),
-		index:               newBlockIndex(config.DB, params),
-		utxoCache:           newUtxoCache(config.DB, config.UtxoCacheMaxSize),
-		hashCache:           config.HashCache,
-		bestChain:           newChainView(nil),
-		bestHeader:          newChainView(nil),
-		orphans:             make(map[chainhash.Hash]*orphanBlock),
-		prevOrphans:         make(map[chainhash.Hash][]*orphanBlock),
-		warningCaches:       newThresholdCaches(vbNumBits),
-		deploymentCaches:    newThresholdCaches(chaincfg.DefinedDeployments),
-		pruneTarget:         config.Prune,
+		checkpoints:             config.Checkpoints,
+		checkpointsByHeight:     checkpointsByHeight,
+		db:                      config.DB,
+		chainParams:             params,
+		timeSource:              config.TimeSource,
+		sigCache:                config.SigCache,
+		indexManager:            config.IndexManager,
+		minRetargetTimespan:     targetTimespan / adjustmentFactor,
+		maxRetargetTimespan:     targetTimespan * adjustmentFactor,
+		blocksPerRetarget:       int32(targetTimespan / targetTimePerBlock),
+		index:                   newBlockIndex(config.DB, params),
+		utxoCache:               newUtxoCache(config.DB, config.UtxoCacheMaxSize),
+		hashCache:               config.HashCache,
+		bestChain:               newChainView(nil),
+		bestHeader:              newChainView(nil),
+		orphans:                 make(map[chainhash.Hash]*orphanBlock),
+		prevOrphans:             make(map[chainhash.Hash][]*orphanBlock),
+		warningCaches:           newThresholdCaches(vbNumBits),
+		deploymentCaches:        newThresholdCaches(chaincfg.DefinedDeployments),
+		pruneTarget:             config.Prune,
+		pruneSpendJournalTarget: config.PruneSpendJournal,
 	}
 
 	// Ensure all the deployments are synchronized with our clock if
@@ -2291,6 +2307,16 @@ func New(config *Config) (*BlockChain, error) {
 	// does not yet contain any chain state, both it and the chain state
 	// will be initialized to contain only the genesis block.
 	if err := b.initChainState(); err != nil {
+		return nil, err
+	}
+
+	// Setup spend journal pruning. If the node has spend journal pruning
+	// enabled, we make sure that the node initializes with the specified
+	// spent journal maximum size. In case spend journal pruning was enabled
+	// before and is disabled now, the node will not be initialized.
+	err := setupSpendJournalPruning(b.db, b.pruneSpendJournalTarget,
+		config.Interrupt)
+	if err != nil {
 		return nil, err
 	}
 
