@@ -11,7 +11,6 @@ package integration
 import (
 	"testing"
 
-	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/stretchr/testify/require"
 )
@@ -20,8 +19,8 @@ func TestPrune(t *testing.T) {
 	t.Parallel()
 
 	// Boilerplate code to make a pruned node.
-	btcdCfg := []string{"--prune=1536"}
-	r, err := rpctest.New(&chaincfg.SimNetParams, nil, btcdCfg, "")
+	opts := &rpctest.HarnessOpts{ExtraArgs: []string{"--prune=1536"}}
+	r, err := rpctest.New(opts)
 	require.NoError(t, err)
 
 	if err := r.SetUp(false, 0); err != nil {

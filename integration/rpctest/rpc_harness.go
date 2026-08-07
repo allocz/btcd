@@ -146,10 +146,10 @@ type HarnessOpts struct {
 	CustomExePath string
 }
 
-// New2 creates and initializes a new instance of the rpctest Harness.
+// New creates and initializes a new instance of the rpctest Harness.
 //
 // NOTE: This function is safe for concurrent access.
-func New2(opts *HarnessOpts) (*Harness, error) {
+func New(opts *HarnessOpts) (*Harness, error) {
 	harnessStateMtx.Lock()
 	defer harnessStateMtx.Unlock()
 
@@ -268,24 +268,6 @@ func New2(opts *HarnessOpts) (*Harness, error) {
 	testInstances[h.testNodeDir] = h
 
 	return h, nil
-}
-
-// New creates and initializes new instance of the rpc test harness.
-// Optionally, websocket handlers and a specified configuration may be passed.
-// In the case that a nil config is passed, a default configuration will be
-// used. If a custom btcd executable is specified, it will be used to start the
-// harness node. Otherwise a new binary is built on demand.
-//
-// NOTE: This function is safe for concurrent access.
-func New(activeNet *chaincfg.Params, handlers *rpcclient.NotificationHandlers,
-	extraArgs []string, customExePath string) (*Harness, error) {
-
-	return New2(&HarnessOpts{
-		Params:        activeNet,
-		Handlers:      handlers,
-		ExtraArgs:     extraArgs,
-		CustomExePath: customExePath,
-	})
 }
 
 // SetUpOpts are options that can be passed to SetUp2 when starting the harness
