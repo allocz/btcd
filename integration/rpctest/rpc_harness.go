@@ -127,30 +127,52 @@ type Harness struct {
 	sync.Mutex
 }
 
-// New creates and initializes new instance of the rpc test harness.
-// Optionally, websocket handlers and a specified configuration may be passed.
-// In the case that a nil config is passed, a default configuration will be
-// used. If a custom btcd executable is specified, it will be used to start the
-// harness node. Otherwise a new binary is built on demand.
+// HarnessOpts are option that can be passed to New2 when initializing the
+// harness instance.
+type HarnessOpts struct {
+	// Params are the parameters of the network to be used, if nil, SimNet
+	// will be used.
+	Params *chaincfg.Params
+
+	// Handlers are the RPC client notification handlers than can optionally
+	// be passed in.
+	Handlers *rpcclient.NotificationHandlers
+
+	// ExtraArgs are extra arguments to be passed to the btcd instance.
+	ExtraArgs []string
+
+	// CustomExePath sets the path of the btcd executable, if empty an
+	// executable is built on demand.
+	CustomExePath string
+}
+
+// New2 creates and initializes a new instance of the rpctest Harness.
 //
 // NOTE: This function is safe for concurrent access.
-func New(activeNet *chaincfg.Params, handlers *rpcclient.NotificationHandlers,
-	extraArgs []string, customExePath string) (*Harness, error) {
-
+func New2(opts *HarnessOpts) (*Harness, error) {
 	harnessStateMtx.Lock()
 	defer harnessStateMtx.Unlock()
 
+	if opts == nil {
+		opts = &HarnessOpts{}
+	}
+
+	// By default we run on SimNet.
+	if opts.Params == nil {
+		opts.Params = &chaincfg.SimNetParams
+	}
+
 	// Add a flag for the appropriate network type based on the provided
 	// chain params.
-	switch activeNet.Net {
+	switch opts.Params.Net {
 	case wire.MainNet:
 		// No extra flags since mainnet is the default
 	case wire.TestNet3:
-		extraArgs = append(extraArgs, "--testnet")
+		opts.ExtraArgs = append(opts.ExtraArgs, "--testnet")
 	case wire.TestNet:
-		extraArgs = append(extraArgs, "--regtest")
+		opts.ExtraArgs = append(opts.ExtraArgs, "--regtest")
 	case wire.SimNet:
-		extraArgs = append(extraArgs, "--simnet")
+		opts.ExtraArgs = append(opts.ExtraArgs, "--simnet")
 	default:
 		return nil, fmt.Errorf("rpctest.New must be called with one " +
 			"of the supported chain networks")
@@ -172,17 +194,16 @@ func New(activeNet *chaincfg.Params, handlers *rpcclient.NotificationHandlers,
 		return nil, err
 	}
 
-	wallet, err := newMemWallet(activeNet, uint32(numTestInstances))
+	wallet, err := newMemWallet(opts.Params, uint32(numTestInstances))
 	if err != nil {
 		return nil, err
 	}
 
 	miningAddr := fmt.Sprintf("--miningaddr=%s", wallet.coinbaseAddr)
-	extraArgs = append(extraArgs, miningAddr)
+	opts.ExtraArgs = append(opts.ExtraArgs, miningAddr)
 
-	config, err := newConfig(
-		nodeTestData, certFile, keyFile, extraArgs, customExePath,
-	)
+	config, err := newConfig(nodeTestData, certFile, keyFile,
+		opts.ExtraArgs, opts.CustomExePath)
 	if err != nil {
 		return nil, err
 	}
@@ -199,41 +220,45 @@ func New(activeNet *chaincfg.Params, handlers *rpcclient.NotificationHandlers,
 	nodeNum := numTestInstances
 	numTestInstances++
 
-	if handlers == nil {
-		handlers = &rpcclient.NotificationHandlers{}
+	if opts.Handlers == nil {
+		opts.Handlers = &rpcclient.NotificationHandlers{}
 	}
 
 	// If a handler for the OnFilteredBlock{Connected,Disconnected} callback
 	// callback has already been set, then create a wrapper callback which
 	// executes both the currently registered callback and the mem wallet's
 	// callback.
-	if handlers.OnFilteredBlockConnected != nil {
-		obc := handlers.OnFilteredBlockConnected
-		handlers.OnFilteredBlockConnected = func(height int32, header *wire.BlockHeader, filteredTxns []*btcutil.Tx) {
+	if opts.Handlers.OnFilteredBlockConnected != nil {
+		obc := opts.Handlers.OnFilteredBlockConnected
+		opts.Handlers.OnFilteredBlockConnected = func(height int32,
+			header *wire.BlockHeader, filteredTxns []*btcutil.Tx) {
+
 			wallet.IngestBlock(height, header, filteredTxns)
 			obc(height, header, filteredTxns)
 		}
 	} else {
 		// Otherwise, we can claim the callback ourselves.
-		handlers.OnFilteredBlockConnected = wallet.IngestBlock
+		opts.Handlers.OnFilteredBlockConnected = wallet.IngestBlock
 	}
-	if handlers.OnFilteredBlockDisconnected != nil {
-		obd := handlers.OnFilteredBlockDisconnected
-		handlers.OnFilteredBlockDisconnected = func(height int32, header *wire.BlockHeader) {
+	if opts.Handlers.OnFilteredBlockDisconnected != nil {
+		obd := opts.Handlers.OnFilteredBlockDisconnected
+		opts.Handlers.OnFilteredBlockDisconnected = func(height int32,
+			header *wire.BlockHeader) {
+
 			wallet.UnwindBlock(height, header)
 			obd(height, header)
 		}
 	} else {
-		handlers.OnFilteredBlockDisconnected = wallet.UnwindBlock
+		opts.Handlers.OnFilteredBlockDisconnected = wallet.UnwindBlock
 	}
 
 	h := &Harness{
-		handlers:               handlers,
+		handlers:               opts.Handlers,
 		node:                   node,
 		MaxConnRetries:         DefaultMaxConnectionRetries,
 		ConnectionRetryTimeout: DefaultConnectionRetryTimeout,
 		testNodeDir:            nodeTestData,
-		ActiveNet:              activeNet,
+		ActiveNet:              opts.Params,
 		nodeNum:                nodeNum,
 		wallet:                 wallet,
 	}
@@ -245,14 +270,46 @@ func New(activeNet *chaincfg.Params, handlers *rpcclient.NotificationHandlers,
 	return h, nil
 }
 
-// SetUp initializes the rpc test state. Initialization includes: starting up a
+// New creates and initializes new instance of the rpc test harness.
+// Optionally, websocket handlers and a specified configuration may be passed.
+// In the case that a nil config is passed, a default configuration will be
+// used. If a custom btcd executable is specified, it will be used to start the
+// harness node. Otherwise a new binary is built on demand.
+//
+// NOTE: This function is safe for concurrent access.
+func New(activeNet *chaincfg.Params, handlers *rpcclient.NotificationHandlers,
+	extraArgs []string, customExePath string) (*Harness, error) {
+
+	return New2(&HarnessOpts{
+		Params:        activeNet,
+		Handlers:      handlers,
+		ExtraArgs:     extraArgs,
+		CustomExePath: customExePath,
+	})
+}
+
+// SetUpOpts are options that can be passed to SetUp2 when starting the harness
+// instance.
+type SetUpOpts struct {
+	// CreateTestChain tells the harness to generate blocks.
+	CreateTestChain bool
+
+	// NumMatureOutputs is the count of mature outputs to be generated.
+	NumMatureOutputs uint32
+}
+
+// SetUp2 initializes the rpc test state. Initialization includes: starting up a
 // simnet node, creating a websockets client and connecting to the started
 // node, and finally: optionally generating and submitting a testchain with a
 // configurable number of mature coinbase outputs coinbase outputs.
 //
 // NOTE: This method and TearDown should always be called from the same
 // goroutine as they are not concurrent safe.
-func (h *Harness) SetUp(createTestChain bool, numMatureOutputs uint32) error {
+func (h *Harness) SetUp2(opts *SetUpOpts) error {
+	if opts == nil {
+		opts = &SetUpOpts{}
+	}
+
 	// Start the btcd node itself. This spawns a new process which will be
 	// managed
 	if err := h.node.start(); err != nil {
@@ -279,9 +336,9 @@ func (h *Harness) SetUp(createTestChain bool, numMatureOutputs uint32) error {
 
 	// Create a test chain with the desired number of mature coinbase
 	// outputs.
-	if createTestChain && numMatureOutputs != 0 {
+	if opts.CreateTestChain && opts.NumMatureOutputs != 0 {
 		coinbaseMaturity := uint32(h.ActiveNet.CoinbaseMaturity)
-		numToGenerate := coinbaseMaturity + numMatureOutputs
+		numToGenerate := coinbaseMaturity + opts.NumMatureOutputs
 		_, err := h.Client.Generate(numToGenerate)
 		if err != nil {
 			return err
@@ -304,6 +361,20 @@ func (h *Harness) SetUp(createTestChain bool, numMatureOutputs uint32) error {
 	ticker.Stop()
 
 	return nil
+}
+
+// SetUp initializes the rpc test state. Initialization includes: starting up a
+// simnet node, creating a websockets client and connecting to the started
+// node, and finally: optionally generating and submitting a testchain with a
+// configurable number of mature coinbase outputs coinbase outputs.
+//
+// NOTE: This method and TearDown should always be called from the same
+// goroutine as they are not concurrent safe.
+func (h *Harness) SetUp(createTestChain bool, numMatureOutputs uint32) error {
+	return h.SetUp2(&SetUpOpts{
+		CreateTestChain:  createTestChain,
+		NumMatureOutputs: numMatureOutputs,
+	})
 }
 
 // tearDown stops the running rpc test instance.  All created processes are
@@ -334,16 +405,28 @@ func (h *Harness) tearDown() error {
 	return nil
 }
 
+// TearDownOpts are options that can be passed to TearDown2.
+type TearDownOpts struct{}
+
+// TearDown2 stops the running rpc test instance. All created processes are
+// killed, and temporary directories removed.
+//
+// NOTE: This method and SetUp should always be called from the same goroutine
+// as they are not concurrent safe.
+func (h *Harness) TearDown2(opts *TearDownOpts) error {
+	harnessStateMtx.Lock()
+	defer harnessStateMtx.Unlock()
+
+	return h.tearDown()
+}
+
 // TearDown stops the running rpc test instance. All created processes are
 // killed, and temporary directories removed.
 //
 // NOTE: This method and SetUp should always be called from the same goroutine
 // as they are not concurrent safe.
 func (h *Harness) TearDown() error {
-	harnessStateMtx.Lock()
-	defer harnessStateMtx.Unlock()
-
-	return h.tearDown()
+	return h.TearDown2(nil)
 }
 
 // connectRPCClient attempts to establish an RPC connection to the created btcd
