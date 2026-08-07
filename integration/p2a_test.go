@@ -29,10 +29,8 @@ func TestPayToAnchorSimple(t *testing.T) {
 	// default, but the sub-dust and non-empty-witness cases below rely on
 	// standardness checks running, so we start the node with
 	// --rejectnonstd.
-	btcdCfg := []string{"--rejectnonstd"}
-	harness, err := rpctest.New(
-		&chaincfg.SimNetParams, nil, btcdCfg, "",
-	)
+	opts := &rpctest.HarnessOpts{ExtraArgs: []string{"--rejectnonstd"}}
+	harness, err := rpctest.New(opts)
 	if err != nil {
 		t.Fatalf("unable to create test harness: %v", err)
 	}
@@ -197,4 +195,3 @@ func TestPayToAnchorSimple(t *testing.T) {
 		}
 	})
 }
-

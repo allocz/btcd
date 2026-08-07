@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
@@ -307,10 +306,8 @@ func TestMain(m *testing.M) {
 	// In order to properly test scenarios on as if we were on mainnet,
 	// ensure that non-standard transactions aren't accepted into the
 	// mempool or relayed.
-	btcdCfg := []string{"--rejectnonstd"}
-	primaryHarness, err = rpctest.New(
-		&chaincfg.SimNetParams, nil, btcdCfg, "",
-	)
+	opts := &rpctest.HarnessOpts{ExtraArgs: []string{"--rejectnonstd"}}
+	primaryHarness, err = rpctest.New(opts)
 	if err != nil {
 		fmt.Println("unable to create primary harness: ", err)
 		os.Exit(1)

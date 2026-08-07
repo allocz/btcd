@@ -19,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
-	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/txscript/v2"
@@ -111,8 +110,8 @@ func makeTestOutput(r *rpctest.Harness, t *testing.T,
 func TestBIP0113Activation(t *testing.T) {
 	t.Parallel()
 
-	btcdCfg := []string{"--rejectnonstd"}
-	r, err := rpctest.New(&chaincfg.SimNetParams, nil, btcdCfg, "")
+	opts := &rpctest.HarnessOpts{ExtraArgs: []string{"--rejectnonstd"}}
+	r, err := rpctest.New(opts)
 	if err != nil {
 		t.Fatal("unable to create primary harness: ", err)
 	}
@@ -408,8 +407,8 @@ func TestBIP0068AndBIP0112Activation(t *testing.T) {
 	// (sequence locks) and BIP 112 rule-sets which add input-age based
 	// relative lock times.
 
-	btcdCfg := []string{"--rejectnonstd"}
-	r, err := rpctest.New(&chaincfg.SimNetParams, nil, btcdCfg, "")
+	opts := &rpctest.HarnessOpts{ExtraArgs: []string{"--rejectnonstd"}}
+	r, err := rpctest.New(opts)
 	if err != nil {
 		t.Fatal("unable to create primary harness: ", err)
 	}
