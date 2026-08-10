@@ -35,12 +35,12 @@ func TestReorgFromForkPoint(t *testing.T) {
 	longer, err := rpctest.New(nil)
 	require.NoError(t, err)
 	require.NoError(t, longer.SetUp(nil))
-	t.Cleanup(func() { require.NoError(t, longer.TearDown()) })
+	t.Cleanup(func() { require.NoError(t, longer.TearDown(nil)) })
 
 	shorter, err := rpctest.New(nil)
 	require.NoError(t, err)
 	require.NoError(t, shorter.SetUp(nil))
-	t.Cleanup(func() { require.NoError(t, shorter.TearDown()) })
+	t.Cleanup(func() { require.NoError(t, shorter.TearDown(nil)) })
 
 	// Mine the shared chain on the longer node before connecting so that
 	// it is "current" and can serve headers/blocks to the shorter node.

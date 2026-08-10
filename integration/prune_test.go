@@ -26,7 +26,7 @@ func TestPrune(t *testing.T) {
 	if err := r.SetUp(nil); err != nil {
 		require.NoError(t, err)
 	}
-	t.Cleanup(func() { r.TearDown() })
+	t.Cleanup(func() { r.TearDown(nil) })
 
 	// Check that the rpc call for block chain info comes back correctly.
 	chainInfo, err := r.Client.GetBlockChainInfo()

@@ -112,7 +112,7 @@ func testConnectNode(r *Harness, t *testing.T) {
 	if err := harness.SetUp(nil); err != nil {
 		t.Fatalf("unable to complete rpctest setup: %v", err)
 	}
-	defer harness.TearDown()
+	defer harness.TearDown(nil)
 
 	// Establish a p2p connection from our new local harness to the main
 	// harness.
@@ -157,7 +157,7 @@ func testActiveHarnesses(r *Harness, t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer harness1.TearDown()
+	defer harness1.TearDown(nil)
 
 	// With the harness created above, a single harness should be detected
 	// as active.
@@ -188,7 +188,7 @@ func testJoinMempools(r *Harness, t *testing.T) {
 	if err := harness.SetUp(nil); err != nil {
 		t.Fatalf("unable to complete rpctest setup: %v", err)
 	}
-	defer harness.TearDown()
+	defer harness.TearDown(nil)
 
 	nodeSlice := []*Harness{r, harness}
 
@@ -288,7 +288,7 @@ func testJoinBlocks(r *Harness, t *testing.T) {
 	if err := harness.SetUp(nil); err != nil {
 		t.Fatalf("unable to complete rpctest setup: %v", err)
 	}
-	defer harness.TearDown()
+	defer harness.TearDown(nil)
 
 	nodeSlice := []*Harness{r, harness}
 	blocksSynced := make(chan struct{})
@@ -480,7 +480,7 @@ func testMemWalletReorg(r *Harness, t *testing.T) {
 	if err := harness.SetUp(sOpts); err != nil {
 		t.Fatalf("unable to complete rpctest setup: %v", err)
 	}
-	defer harness.TearDown()
+	defer harness.TearDown(nil)
 
 	// The internal wallet of this harness should now have 250 BTC.
 	expectedBalance := btcutil.Amount(250 * btcutil.SatoshiPerBitcoin)
@@ -591,7 +591,7 @@ func TestMain(m *testing.M) {
 		// directories are cleaned up.  The error is intentionally
 		// ignored since this is already an error path and nothing else
 		// could be done about it anyways.
-		_ = mainHarness.TearDown()
+		_ = mainHarness.TearDown(nil)
 		os.Exit(1)
 	}
 

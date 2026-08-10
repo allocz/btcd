@@ -138,7 +138,7 @@ func testBIP0009(t *testing.T, forkKey string, deploymentID uint32) {
 	if err := r.SetUp(nil); err != nil {
 		t.Fatalf("unable to setup test chain: %v", err)
 	}
-	defer r.TearDown()
+	defer r.TearDown(nil)
 
 	// Short-circuit deployments that are configured as always active.
 	if deploymentID < uint32(len(r.ActiveNet.Deployments)) {
@@ -391,7 +391,7 @@ func TestBIP0009Mining(t *testing.T) {
 	if err := r.SetUp(nil); err != nil {
 		t.Fatalf("unable to setup test chain: %v", err)
 	}
-	defer r.TearDown()
+	defer r.TearDown(nil)
 
 	// Assert the chain only consists of the genesis block.
 	assertChainHeight(r, t, 0)

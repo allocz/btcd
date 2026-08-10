@@ -153,7 +153,7 @@ func TestGetChainTips(t *testing.T) {
 	if err := r.SetUp(nil); err != nil {
 		t.Fatalf("TestGetChainTips fail. Unable to setup test chain: %v", err)
 	}
-	defer r.TearDown()
+	defer r.TearDown(nil)
 
 	// Immediately call getchaintips after setting up regtest.
 	gotChainTips, err := r.Client.GetChainTips()

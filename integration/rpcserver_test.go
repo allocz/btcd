@@ -328,7 +328,7 @@ func TestMain(m *testing.M) {
 		// directories are cleaned up.  The error is intentionally
 		// ignored since this is already an error path and nothing else
 		// could be done about it anyways.
-		_ = primaryHarness.TearDown()
+		_ = primaryHarness.TearDown(nil)
 		os.Exit(1)
 	}
 

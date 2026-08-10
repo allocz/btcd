@@ -34,7 +34,7 @@ func TestPayToAnchorSimple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create test harness: %v", err)
 	}
-	defer harness.TearDown()
+	defer harness.TearDown(nil)
 
 	// Initialize the test harness with mining enabled to confirm
 	// transactions.

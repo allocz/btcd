@@ -303,7 +303,7 @@ func TestSyncManagerRaceCorruption(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, stressedHarness.SetUp(nil))
 	t.Cleanup(func() {
-		require.NoError(t, stressedHarness.TearDown())
+		require.NoError(t, stressedHarness.TearDown(nil))
 	})
 
 	nodeAddr := stressedHarness.P2PAddress()
@@ -327,7 +327,7 @@ func TestSyncManagerRaceCorruption(t *testing.T) {
 	newHarness, err := rpctest.New(nil)
 	require.NoError(t, err)
 	require.NoError(t, newHarness.SetUp(nil))
-	defer func() { _ = newHarness.TearDown() }()
+	defer func() { _ = newHarness.TearDown(nil) }()
 
 	require.NoError(t, rpctest.ConnectNode(stressedHarness, newHarness),
 		"stressed node must connect to the new node")
@@ -421,7 +421,7 @@ func TestPreVerackDisconnect(t *testing.T) {
 	harness, err := rpctest.New(nil)
 	require.NoError(t, err)
 	require.NoError(t, harness.SetUp(nil))
-	t.Cleanup(func() { _ = harness.TearDown() })
+	t.Cleanup(func() { _ = harness.TearDown(nil) })
 
 	nodeAddr := harness.P2PAddress()
 
@@ -464,7 +464,7 @@ func TestPreVerackDisconnect(t *testing.T) {
 	helper, err := rpctest.New(nil)
 	require.NoError(t, err)
 	require.NoError(t, helper.SetUp(nil))
-	defer func() { _ = helper.TearDown() }()
+	defer func() { _ = helper.TearDown(nil) }()
 
 	require.NoError(t, rpctest.ConnectNode(harness, helper))
 

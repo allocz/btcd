@@ -373,28 +373,19 @@ func (h *Harness) tearDown() error {
 	return nil
 }
 
-// TearDownOpts are options that can be passed to TearDown2.
+// TearDownOpts are options that can be passed to TearDown.
 type TearDownOpts struct{}
-
-// TearDown2 stops the running rpc test instance. All created processes are
-// killed, and temporary directories removed.
-//
-// NOTE: This method and SetUp should always be called from the same goroutine
-// as they are not concurrent safe.
-func (h *Harness) TearDown2(opts *TearDownOpts) error {
-	harnessStateMtx.Lock()
-	defer harnessStateMtx.Unlock()
-
-	return h.tearDown()
-}
 
 // TearDown stops the running rpc test instance. All created processes are
 // killed, and temporary directories removed.
 //
 // NOTE: This method and SetUp should always be called from the same goroutine
 // as they are not concurrent safe.
-func (h *Harness) TearDown() error {
-	return h.TearDown2(nil)
+func (h *Harness) TearDown(opts *TearDownOpts) error {
+	harnessStateMtx.Lock()
+	defer harnessStateMtx.Unlock()
+
+	return h.tearDown()
 }
 
 // connectRPCClient attempts to establish an RPC connection to the created btcd

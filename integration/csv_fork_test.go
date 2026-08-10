@@ -122,7 +122,7 @@ func TestBIP0113Activation(t *testing.T) {
 	if err := r.SetUp(sOpts); err != nil {
 		t.Fatalf("unable to setup test chain: %v", err)
 	}
-	defer r.TearDown()
+	defer r.TearDown(nil)
 
 	// Create a fresh output for usage within the test below.
 	const outputValue = btcutil.SatoshiPerBitcoin
@@ -423,7 +423,7 @@ func TestBIP0068AndBIP0112Activation(t *testing.T) {
 	if err := r.SetUp(sOpts); err != nil {
 		t.Fatalf("unable to setup test chain: %v", err)
 	}
-	defer r.TearDown()
+	defer r.TearDown(nil)
 
 	assertSoftForkStatus(r, t, csvKey, blockchain.ThresholdStarted)
 

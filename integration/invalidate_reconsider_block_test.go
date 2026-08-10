@@ -19,7 +19,7 @@ func TestInvalidateAndReconsiderBlock(t *testing.T) {
 		t.Fatalf("TestInvalidateAndReconsiderBlock fail. "+
 			"Unable to setup test chain: %v", err)
 	}
-	defer r.TearDown()
+	defer r.TearDown(nil)
 
 	// Generate 4 blocks.
 	//

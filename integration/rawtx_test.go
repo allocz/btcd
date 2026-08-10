@@ -39,7 +39,7 @@ func TestTestMempoolAccept(t *testing.T) {
 	}
 	require.NoError(t, r.SetUp(sOpts))
 	t.Cleanup(func() {
-		require.NoError(t, r.TearDown())
+		require.NoError(t, r.TearDown(nil))
 	})
 
 	// Create testing txns.
