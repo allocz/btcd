@@ -23,7 +23,7 @@ func TestPrune(t *testing.T) {
 	r, err := rpctest.New(opts)
 	require.NoError(t, err)
 
-	if err := r.SetUp(false, 0); err != nil {
+	if err := r.SetUp(nil); err != nil {
 		require.NoError(t, err)
 	}
 	t.Cleanup(func() { r.TearDown() })

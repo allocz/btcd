@@ -150,7 +150,7 @@ func TestGetChainTips(t *testing.T) {
 	if err != nil {
 		t.Fatal("TestGetChainTips fail. Unable to create primary harness: ", err)
 	}
-	if err := r.SetUp(true, 0); err != nil {
+	if err := r.SetUp(nil); err != nil {
 		t.Fatalf("TestGetChainTips fail. Unable to setup test chain: %v", err)
 	}
 	defer r.TearDown()

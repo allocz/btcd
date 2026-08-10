@@ -15,7 +15,7 @@ func TestInvalidateAndReconsiderBlock(t *testing.T) {
 		t.Fatalf("TestInvalidateAndReconsiderBlock fail."+
 			"Unable to create primary harness: %v", err)
 	}
-	if err := r.SetUp(true, 0); err != nil {
+	if err := r.SetUp(nil); err != nil {
 		t.Fatalf("TestInvalidateAndReconsiderBlock fail. "+
 			"Unable to setup test chain: %v", err)
 	}

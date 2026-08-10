@@ -270,7 +270,7 @@ func New(opts *HarnessOpts) (*Harness, error) {
 	return h, nil
 }
 
-// SetUpOpts are options that can be passed to SetUp2 when starting the harness
+// SetUpOpts are options that can be passed to SetUp when starting the harness
 // instance.
 type SetUpOpts struct {
 	// CreateTestChain tells the harness to generate blocks.
@@ -280,14 +280,14 @@ type SetUpOpts struct {
 	NumMatureOutputs uint32
 }
 
-// SetUp2 initializes the rpc test state. Initialization includes: starting up a
+// SetUp initializes the rpc test state. Initialization includes: starting up a
 // simnet node, creating a websockets client and connecting to the started
 // node, and finally: optionally generating and submitting a testchain with a
 // configurable number of mature coinbase outputs coinbase outputs.
 //
 // NOTE: This method and TearDown should always be called from the same
 // goroutine as they are not concurrent safe.
-func (h *Harness) SetUp2(opts *SetUpOpts) error {
+func (h *Harness) SetUp(opts *SetUpOpts) error {
 	if opts == nil {
 		opts = &SetUpOpts{}
 	}
@@ -343,20 +343,6 @@ func (h *Harness) SetUp2(opts *SetUpOpts) error {
 	ticker.Stop()
 
 	return nil
-}
-
-// SetUp initializes the rpc test state. Initialization includes: starting up a
-// simnet node, creating a websockets client and connecting to the started
-// node, and finally: optionally generating and submitting a testchain with a
-// configurable number of mature coinbase outputs coinbase outputs.
-//
-// NOTE: This method and TearDown should always be called from the same
-// goroutine as they are not concurrent safe.
-func (h *Harness) SetUp(createTestChain bool, numMatureOutputs uint32) error {
-	return h.SetUp2(&SetUpOpts{
-		CreateTestChain:  createTestChain,
-		NumMatureOutputs: numMatureOutputs,
-	})
 }
 
 // tearDown stops the running rpc test instance.  All created processes are

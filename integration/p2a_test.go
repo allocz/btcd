@@ -38,7 +38,11 @@ func TestPayToAnchorSimple(t *testing.T) {
 
 	// Initialize the test harness with mining enabled to confirm
 	// transactions.
-	err = harness.SetUp(true, 25)
+	sOpts := &rpctest.SetUpOpts{
+		CreateTestChain:  true,
+		NumMatureOutputs: 25,
+	}
+	err = harness.SetUp(sOpts)
 	if err != nil {
 		t.Fatalf("unable to setup test harness: %v", err)
 	}

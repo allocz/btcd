@@ -32,7 +32,11 @@ func TestGetTxSpendingPrevOut(t *testing.T) {
 	require.NoError(t, err)
 
 	// Setup the node.
-	require.NoError(t, r.SetUp(true, 100))
+	sOpts := &rpctest.SetUpOpts{
+		CreateTestChain:  true,
+		NumMatureOutputs: 100,
+	}
+	require.NoError(t, r.SetUp(sOpts))
 	t.Cleanup(func() {
 		require.NoError(t, r.TearDown())
 	})

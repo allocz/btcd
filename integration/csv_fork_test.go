@@ -115,7 +115,11 @@ func TestBIP0113Activation(t *testing.T) {
 	if err != nil {
 		t.Fatal("unable to create primary harness: ", err)
 	}
-	if err := r.SetUp(true, 1); err != nil {
+	sOpts := &rpctest.SetUpOpts{
+		CreateTestChain:  true,
+		NumMatureOutputs: 1,
+	}
+	if err := r.SetUp(sOpts); err != nil {
 		t.Fatalf("unable to setup test chain: %v", err)
 	}
 	defer r.TearDown()
@@ -412,7 +416,11 @@ func TestBIP0068AndBIP0112Activation(t *testing.T) {
 	if err != nil {
 		t.Fatal("unable to create primary harness: ", err)
 	}
-	if err := r.SetUp(true, 1); err != nil {
+	sOpts := &rpctest.SetUpOpts{
+		CreateTestChain:  true,
+		NumMatureOutputs: 1,
+	}
+	if err := r.SetUp(sOpts); err != nil {
 		t.Fatalf("unable to setup test chain: %v", err)
 	}
 	defer r.TearDown()

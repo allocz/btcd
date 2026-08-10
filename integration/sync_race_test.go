@@ -301,7 +301,7 @@ func TestSyncManagerRaceCorruption(t *testing.T) {
 	opts := &rpctest.HarnessOpts{ExtraArgs: []string{"--maxpeers=400"}}
 	stressedHarness, err := rpctest.New(opts)
 	require.NoError(t, err)
-	require.NoError(t, stressedHarness.SetUp(true, 0))
+	require.NoError(t, stressedHarness.SetUp(nil))
 	t.Cleanup(func() {
 		require.NoError(t, stressedHarness.TearDown())
 	})
@@ -326,7 +326,7 @@ func TestSyncManagerRaceCorruption(t *testing.T) {
 	// peers), it will not sync from the new one.
 	newHarness, err := rpctest.New(nil)
 	require.NoError(t, err)
-	require.NoError(t, newHarness.SetUp(true, 0))
+	require.NoError(t, newHarness.SetUp(nil))
 	defer func() { _ = newHarness.TearDown() }()
 
 	require.NoError(t, rpctest.ConnectNode(stressedHarness, newHarness),
@@ -420,7 +420,7 @@ func dialPreVerackPeer(nodeAddr string) (net.Conn, error) {
 func TestPreVerackDisconnect(t *testing.T) {
 	harness, err := rpctest.New(nil)
 	require.NoError(t, err)
-	require.NoError(t, harness.SetUp(true, 0))
+	require.NoError(t, harness.SetUp(nil))
 	t.Cleanup(func() { _ = harness.TearDown() })
 
 	nodeAddr := harness.P2PAddress()
@@ -463,7 +463,7 @@ func TestPreVerackDisconnect(t *testing.T) {
 	// blocks, and confirm the harness syncs them.
 	helper, err := rpctest.New(nil)
 	require.NoError(t, err)
-	require.NoError(t, helper.SetUp(true, 0))
+	require.NoError(t, helper.SetUp(nil))
 	defer func() { _ = helper.TearDown() }()
 
 	require.NoError(t, rpctest.ConnectNode(harness, helper))
