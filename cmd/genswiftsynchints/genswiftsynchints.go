@@ -54,7 +54,7 @@ const (
 	// spentBatchBlocks is the number of blocks to process before flushing
 	// the collected outpoints through a sorted iterator lookup when marking
 	// spent bits.
-	spentBatchBlocks = 5000
+	spentBatchBlocks = 100
 
 	// bitmapCheckpointInterval is the minimum time between periodic spent
 	// bitmap checkpoints during marking.  Each checkpoint rewrites the
@@ -634,9 +634,7 @@ func markSpentBits(ctx context.Context, pdb *pebble.DB, chain *blockchain.BlockC
 		}
 
 		batchEnd := batchStart + spentBatchBlocks - 1
-		if batchEnd > lastHeight {
-			batchEnd = lastHeight
-		}
+		batchEnd = min(batchEnd, lastHeight)
 
 		outpoints := make([]wire.OutPoint, 0, 50000)
 		for height := batchStart; height <= batchEnd; height++ {
