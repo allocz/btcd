@@ -638,20 +638,63 @@ func testDebugStream(_ *Harness, t *testing.T) {
 	require.Equal(t, stateShutdown, state)
 }
 
-var harnessTestCases = []HarnessTestCase{
-	testSendOutputs,
-	testConnectNode,
-	testActiveHarnesses,
-	testJoinBlocks,
-	testJoinMempools, // Depends on results of testJoinBlocks
-	testGenerateAndSubmitBlock,
-	testGenerateAndSubmitBlockWithCustomCoinbaseOutputs,
-	testMemWalletReorg,
-	testMemWalletLockedOutputs,
-	testNodeRestart,
-	testNodeExitError,
-	testNoGoroutineLeak,
-	testDebugStream,
+var harnessTestCases = []struct {
+	name string
+	test HarnessTestCase
+}{
+	{
+		name: "testSendOutputs",
+		test: testSendOutputs,
+	},
+	{
+		name: "testConnectNode",
+		test: testConnectNode,
+	},
+	{
+		name: "testActiveHarnesses",
+		test: testActiveHarnesses,
+	},
+	{
+		name: "testJoinBlocks",
+		test: testJoinBlocks,
+	},
+	{
+		// Depends on results of testJoinBlocks
+		name: "testJoinMempools",
+		test: testJoinMempools,
+	},
+	{
+		name: "testGenerateAndSubmitBlock",
+		test: testGenerateAndSubmitBlock,
+	},
+	{
+		name: "testGenerateAndSubmitBlockWithCustomCoinbaseOutputs",
+		test: testGenerateAndSubmitBlockWithCustomCoinbaseOutputs,
+	},
+	{
+		name: "testMemWalletReorg",
+		test: testMemWalletReorg,
+	},
+	{
+		name: "testMemWalletLockedOutputs",
+		test: testMemWalletLockedOutputs,
+	},
+	{
+		name: "testNodeRestart",
+		test: testNodeRestart,
+	},
+	{
+		name: "testNodeExitError",
+		test: testNodeExitError,
+	},
+	{
+		name: "testNoGoroutineLeak",
+		test: testNoGoroutineLeak,
+	},
+	{
+		name: "testDebugStream",
+		test: testDebugStream,
+	},
 }
 
 var mainHarness *Harness
@@ -703,7 +746,8 @@ func TestMain(m *testing.M) {
 func TestHarness(t *testing.T) {
 	// We should have (numMatureOutputs * 50 BTC) of mature unspendable
 	// outputs.
-	expectedBalance := btcutil.Amount(numMatureOutputs * 50 * btcutil.SatoshiPerBitcoin)
+	expectedBalance := btcutil.Amount(
+		numMatureOutputs * 50 * btcutil.SatoshiPerBitcoin)
 	harnessBalance := mainHarness.ConfirmedBalance()
 	if harnessBalance != expectedBalance {
 		t.Fatalf("expected wallet balance of %v instead have %v",
@@ -716,14 +760,17 @@ func TestHarness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to execute getinfo on node: %v", err)
 	}
-	expectedChainHeight := numMatureOutputs + uint32(mainHarness.ActiveNet.CoinbaseMaturity)
+	expectedChainHeight := numMatureOutputs + uint32(
+		mainHarness.ActiveNet.CoinbaseMaturity)
 	if uint32(nodeInfo.Blocks) != expectedChainHeight {
 		t.Errorf("Chain height is %v, should be %v",
 			nodeInfo.Blocks, expectedChainHeight)
 	}
 
 	for _, testCase := range harnessTestCases {
-		testCase(mainHarness, t)
+		t.Run(testCase.name, func(t *testing.T) {
+			testCase.test(mainHarness, t)
+		})
 	}
 
 	testTearDownAll(t)
