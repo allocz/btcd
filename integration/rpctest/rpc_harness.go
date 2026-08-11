@@ -284,6 +284,11 @@ type SetUpOpts struct {
 	// wallet. Note that enabling this option also disables generation of
 	// mature inputs and test chain.
 	NoRPCClientAndWallet bool
+
+	// NoWalletWait can be set to never block waiting for wallet to catch up
+	// best node height. This is useful for tests where we need the RPC but
+	// don't want to wait for the wallet to sync.
+	NoWalletWait bool
 }
 
 // SetUp initializes the rpc test state. Initialization includes: starting up a
@@ -346,6 +351,10 @@ func (h *Harness) SetUp(opts *SetUpOpts) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	if opts.NoWalletWait {
+		return nil
 	}
 
 	// Block until the wallet has fully synced up to the tip of the main
