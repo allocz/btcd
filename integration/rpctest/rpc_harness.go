@@ -406,6 +406,10 @@ func (h *Harness) tearDown(opts *TearDownOpts) error {
 		h.BatchClient.WaitForShutdown()
 	}
 
+	if h.wallet != nil {
+		h.wallet.Stop()
+	}
+
 	// Shutdown node only if it exists.
 	var shutdownErr error
 	if h.node != nil {

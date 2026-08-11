@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 
@@ -593,6 +594,20 @@ func testNodeExitError(_ *Harness, t *testing.T) {
 	require.True(t, errors.As(err, &exitErr))
 }
 
+func testNoGoroutineLeak(_ *Harness, t *testing.T) {
+	gStart := runtime.NumGoroutine()
+	defer func() {
+		time.Sleep(time.Millisecond * 50)
+		runtime.GC()
+		require.Equal(t, int(0), runtime.NumGoroutine()-gStart)
+	}()
+
+	h, err := New(nil)
+	require.NoError(t, err)
+	require.NoError(t, h.SetUp(nil))
+	require.NoError(t, h.TearDown(nil))
+}
+
 var harnessTestCases = []HarnessTestCase{
 	testSendOutputs,
 	testConnectNode,
@@ -605,6 +620,7 @@ var harnessTestCases = []HarnessTestCase{
 	testMemWalletLockedOutputs,
 	testNodeRestart,
 	testNodeExitError,
+	testNoGoroutineLeak,
 }
 
 var mainHarness *Harness
