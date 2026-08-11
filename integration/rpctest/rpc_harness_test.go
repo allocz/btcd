@@ -19,6 +19,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/debugstream"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/stretchr/testify/require"
@@ -608,6 +609,35 @@ func testNoGoroutineLeak(_ *Harness, t *testing.T) {
 	require.NoError(t, h.TearDown(nil))
 }
 
+func testDebugStream(_ *Harness, t *testing.T) {
+	type dhState byte
+	const (
+		stateBegin dhState = iota
+		stateStarted
+		stateShutdown
+	)
+	var state dhState
+	done := make(chan struct{})
+	debugHandler := func(e debugstream.Event) {
+		switch {
+		case state == stateBegin && e.Code == debugstream.DEStart:
+			state = stateStarted
+
+		case state == stateStarted && e.Code == debugstream.DEShutdown:
+			state = stateShutdown
+			close(done)
+		}
+	}
+
+	h, err := New(&HarnessOpts{DebugHandler: debugHandler})
+	require.NoError(t, err)
+	require.NoError(t, h.SetUp(nil))
+	require.NoError(t, h.TearDown(nil))
+
+	<-done
+	require.Equal(t, stateShutdown, state)
+}
+
 var harnessTestCases = []HarnessTestCase{
 	testSendOutputs,
 	testConnectNode,
@@ -621,6 +651,7 @@ var harnessTestCases = []HarnessTestCase{
 	testNodeRestart,
 	testNodeExitError,
 	testNoGoroutineLeak,
+	testDebugStream,
 }
 
 var mainHarness *Harness

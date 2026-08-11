@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/debugstream"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire/v2"
 )
@@ -123,6 +124,8 @@ type Harness struct {
 
 	wallet *memWallet
 
+	debugClient *debugstream.Client
+
 	testNodeDir string
 	nodeNum     int
 
@@ -146,6 +149,10 @@ type HarnessOpts struct {
 	// CustomExePath sets the path of the btcd executable, if empty an
 	// executable is built on demand.
 	CustomExePath string
+
+	// DebugHandler is an optional callback that can be used to receive
+	// debug events.
+	DebugHandler func(e debugstream.Event)
 }
 
 // New creates and initializes a new instance of the rpctest Harness.
@@ -204,6 +211,14 @@ func New(opts *HarnessOpts) (*Harness, error) {
 	miningAddr := fmt.Sprintf("--miningaddr=%s", wallet.coinbaseAddr)
 	opts.ExtraArgs = append(opts.ExtraArgs, miningAddr)
 
+	var debugClient *debugstream.Client
+	if opts.DebugHandler != nil {
+		port := NextAvailablePort()
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		debugClient = debugstream.NewClient(addr, opts.DebugHandler)
+		opts.ExtraArgs = append(opts.ExtraArgs, "--debugstream="+addr)
+	}
+
 	config, err := newConfig(nodeTestData, certFile, keyFile,
 		opts.ExtraArgs, opts.CustomExePath)
 	if err != nil {
@@ -257,6 +272,7 @@ func New(opts *HarnessOpts) (*Harness, error) {
 		ActiveNet:              opts.Params,
 		nodeNum:                nodeNum,
 		wallet:                 wallet,
+		debugClient:            debugClient,
 	}
 
 	// Track this newly created test instance within the package level
@@ -317,6 +333,13 @@ func (h *Harness) SetUp(opts *SetUpOpts) error {
 	}
 	if err := h.node.start(); err != nil {
 		return fmt.Errorf("error starting node: %w", err)
+	}
+
+	if h.debugClient != nil {
+		err := h.debugClient.Start()
+		if err != nil {
+			return err
+		}
 	}
 
 	if opts.NoRPCClientAndWallet {
@@ -426,6 +449,12 @@ func (h *Harness) tearDown(opts *TearDownOpts) error {
 	}
 
 	delete(testInstances, h.testNodeDir)
+
+	// Stop debugClient after stopping the node in order to be able to
+	// process events sent by the node shutdown logic.
+	if h.debugClient != nil {
+		h.debugClient.Stop()
+	}
 
 	return errors.Join(shutdownErr, cleanupErr)
 }
