@@ -33,10 +33,7 @@ func TestTestMempoolAccept(t *testing.T) {
 	require.NoError(t, err)
 
 	// Setup the node.
-	sOpts := &rpctest.SetUpOpts{
-		CreateTestChain:  true,
-		NumMatureOutputs: 100,
-	}
+	sOpts := &rpctest.SetUpOpts{NumMatureOutputs: 100}
 	require.NoError(t, r.SetUp(sOpts))
 	t.Cleanup(func() {
 		require.NoError(t, r.TearDown(nil))

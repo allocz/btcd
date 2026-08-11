@@ -478,10 +478,7 @@ func testMemWalletReorg(r *Harness, t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sOpts := &SetUpOpts{
-		CreateTestChain:  true,
-		NumMatureOutputs: 5,
-	}
+	sOpts := &SetUpOpts{NumMatureOutputs: 5}
 	if err := harness.SetUp(sOpts); err != nil {
 		t.Fatalf("unable to complete rpctest setup: %v", err)
 	}
@@ -559,7 +556,7 @@ func testNodeRestart(_ *Harness, t *testing.T) {
 	// Start the node and mine some blocks.
 	h, err := New(nil)
 	require.NoError(t, err)
-	err = h.SetUp(&SetUpOpts{CreateTestChain: true, NumMatureOutputs: 1})
+	err = h.SetUp(&SetUpOpts{NumMatureOutputs: 1})
 	require.NoError(t, err)
 	count, err := h.Client.GetBlockCount()
 	require.NoError(t, err)
@@ -714,10 +711,7 @@ func TestMain(m *testing.M) {
 	// Initialize the main mining node with a chain of length 125,
 	// providing 25 mature coinbases to allow spending from for testing
 	// purposes.
-	sOpts := &SetUpOpts{
-		CreateTestChain:  true,
-		NumMatureOutputs: numMatureOutputs,
-	}
+	sOpts := &SetUpOpts{NumMatureOutputs: numMatureOutputs}
 	if err = mainHarness.SetUp(sOpts); err != nil {
 		fmt.Println("unable to setup test chain: ", err)
 

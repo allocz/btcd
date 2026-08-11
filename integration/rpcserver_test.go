@@ -316,10 +316,7 @@ func TestMain(m *testing.M) {
 	// Initialize the primary mining node with a chain of length 125,
 	// providing 25 mature coinbases to allow spending from for testing
 	// purposes.
-	sOpts := &rpctest.SetUpOpts{
-		CreateTestChain:  true,
-		NumMatureOutputs: 25,
-	}
+	sOpts := &rpctest.SetUpOpts{NumMatureOutputs: 25}
 	if err := primaryHarness.SetUp(sOpts); err != nil {
 		fmt.Println("unable to setup test chain: ", err)
 

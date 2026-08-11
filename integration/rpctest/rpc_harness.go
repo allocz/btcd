@@ -285,9 +285,6 @@ func New(opts *HarnessOpts) (*Harness, error) {
 // SetUpOpts are options that can be passed to SetUp when starting the harness
 // instance.
 type SetUpOpts struct {
-	// CreateTestChain tells the harness to generate blocks.
-	CreateTestChain bool
-
 	// NumMatureOutputs is the count of mature outputs to be generated.
 	NumMatureOutputs uint32
 
