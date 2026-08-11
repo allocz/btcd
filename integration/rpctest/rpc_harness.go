@@ -367,7 +367,7 @@ func (h *Harness) SetUp(opts *SetUpOpts) error {
 
 	// Create a test chain with the desired number of mature coinbase
 	// outputs.
-	if opts.CreateTestChain && opts.NumMatureOutputs != 0 {
+	if opts.NumMatureOutputs > 0 {
 		coinbaseMaturity := uint32(h.ActiveNet.CoinbaseMaturity)
 		numToGenerate := coinbaseMaturity + opts.NumMatureOutputs
 		_, err := h.Client.Generate(numToGenerate)
