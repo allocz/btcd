@@ -9,8 +9,10 @@
 package rpctest
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/stretchr/testify/require"
 )
 
 func testSendOutputs(r *Harness, t *testing.T) {
@@ -550,6 +553,46 @@ func testMemWalletLockedOutputs(r *Harness, t *testing.T) {
 	}
 }
 
+func testNodeRestart(_ *Harness, t *testing.T) {
+	// Start the node and mine some blocks.
+	h, err := New(nil)
+	require.NoError(t, err)
+	err = h.SetUp(&SetUpOpts{CreateTestChain: true, NumMatureOutputs: 1})
+	require.NoError(t, err)
+	count, err := h.Client.GetBlockCount()
+	require.NoError(t, err)
+	require.Equal(t, int64(101), count)
+	err = h.TearDown(&TearDownOpts{SkipCleanup: true})
+	require.NoError(t, err)
+
+	// Start the node again and assert the state was kept by checking that
+	// the block count remains.
+	err = h.SetUp(nil)
+	require.NoError(t, err)
+	count, err = h.Client.GetBlockCount()
+	require.NoError(t, err)
+	require.Equal(t, int64(101), count)
+	err = h.TearDown(nil)
+	require.NoError(t, err)
+
+	// Confirm that the state was cleaned up by asserting that the node
+	// directory was deleted.
+	_, err = os.Stat(h.testNodeDir)
+	require.Equal(t, true, os.IsNotExist(err))
+}
+
+func testNodeExitError(_ *Harness, t *testing.T) {
+	// Start with invalid args, causing the node process to stop with error
+	// status code.
+	h, err := New(&HarnessOpts{ExtraArgs: []string{"--invalidflag=0"}})
+	require.NoError(t, err)
+	err = h.SetUp(&SetUpOpts{NoRPCClientAndWallet: true})
+	require.NoError(t, err)
+	err = h.TearDown(nil)
+	var exitErr *exec.ExitError
+	require.True(t, errors.As(err, &exitErr))
+}
+
 var harnessTestCases = []HarnessTestCase{
 	testSendOutputs,
 	testConnectNode,
@@ -560,6 +603,8 @@ var harnessTestCases = []HarnessTestCase{
 	testGenerateAndSubmitBlockWithCustomCoinbaseOutputs,
 	testMemWalletReorg,
 	testMemWalletLockedOutputs,
+	testNodeRestart,
+	testNodeExitError,
 }
 
 var mainHarness *Harness

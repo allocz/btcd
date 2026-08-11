@@ -5,6 +5,7 @@
 package rpctest
 
 import (
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -116,6 +117,7 @@ type Harness struct {
 
 	Client      *rpcclient.Client
 	BatchClient *rpcclient.Client
+	nodeConfig  *nodeConfig
 	node        *node
 	handlers    *rpcclient.NotificationHandlers
 
@@ -211,12 +213,6 @@ func New(opts *HarnessOpts) (*Harness, error) {
 	// Generate p2p+rpc listening addresses.
 	config.listen, config.rpcListen = ListenAddressGenerator()
 
-	// Create the testing node bounded to the simnet.
-	node, err := newNode(config, nodeTestData)
-	if err != nil {
-		return nil, err
-	}
-
 	nodeNum := numTestInstances
 	numTestInstances++
 
@@ -254,7 +250,7 @@ func New(opts *HarnessOpts) (*Harness, error) {
 
 	h := &Harness{
 		handlers:               opts.Handlers,
-		node:                   node,
+		nodeConfig:             config,
 		MaxConnRetries:         DefaultMaxConnectionRetries,
 		ConnectionRetryTimeout: DefaultConnectionRetryTimeout,
 		testNodeDir:            nodeTestData,
@@ -278,6 +274,16 @@ type SetUpOpts struct {
 
 	// NumMatureOutputs is the count of mature outputs to be generated.
 	NumMatureOutputs uint32
+
+	// StartArgs are arguments passed to the btcd instance on start. This
+	// option enables restarting the node with different arguments, which
+	// is needed in some test cases.
+	StartArgs []string
+
+	// NoRPCClientAndWallet skips the initialization of the RPC client and
+	// wallet. Note that enabling this option also disables generation of
+	// mature inputs and test chain.
+	NoRPCClientAndWallet bool
 }
 
 // SetUp initializes the rpc test state. Initialization includes: starting up a
@@ -288,15 +294,30 @@ type SetUpOpts struct {
 // NOTE: This method and TearDown should always be called from the same
 // goroutine as they are not concurrent safe.
 func (h *Harness) SetUp(opts *SetUpOpts) error {
+	var err error
 	if opts == nil {
 		opts = &SetUpOpts{}
 	}
 
-	// Start the btcd node itself. This spawns a new process which will be
-	// managed
+	// Create and start the btcd node bounded to the selected network. This
+	// spawns a new process which will be managed.
+	if h.node != nil {
+		return fmt.Errorf("node process already exists")
+	}
+	nodeConfig := *h.nodeConfig
+	nodeConfig.extra = append(nodeConfig.extra, opts.StartArgs...)
+	h.node, err = newNode(&nodeConfig, h.testNodeDir)
+	if err != nil {
+		return err
+	}
 	if err := h.node.start(); err != nil {
 		return fmt.Errorf("error starting node: %w", err)
 	}
+
+	if opts.NoRPCClientAndWallet {
+		return nil
+	}
+
 	if err := h.connectRPCClient(); err != nil {
 		return fmt.Errorf("error connecting RPC client: %w", err)
 	}
@@ -345,11 +366,27 @@ func (h *Harness) SetUp(opts *SetUpOpts) error {
 	return nil
 }
 
+// TearDownOpts are options that can be passed to TearDown.
+type TearDownOpts struct {
+	// SkipCleanup allows the harness to shutdown without cleaning up data,
+	// which is needed to test node restart.
+	SkipCleanup bool
+
+	// NoSignal being true waits until node shutdowns itself instead of
+	// sending a termination signal. Needed for cases where we want to test
+	// node shutdown.
+	NoSignal bool
+}
+
 // tearDown stops the running rpc test instance.  All created processes are
 // killed, and temporary directories removed.
 //
 // This function MUST be called with the harness state mutex held (for writes).
-func (h *Harness) tearDown() error {
+func (h *Harness) tearDown(opts *TearDownOpts) error {
+	if opts == nil {
+		opts = &TearDownOpts{}
+	}
+
 	if h.Client != nil {
 		h.Client.Shutdown()
 		h.Client.WaitForShutdown()
@@ -360,21 +397,25 @@ func (h *Harness) tearDown() error {
 		h.BatchClient.WaitForShutdown()
 	}
 
-	if err := h.node.shutdown(true); err != nil {
-		return err
+	// Shutdown node only if it exists.
+	var shutdownErr error
+	if h.node != nil {
+		signal := !opts.NoSignal
+		shutdownErr = h.node.shutdown(signal)
+		h.node = nil
 	}
 
-	if err := os.RemoveAll(h.testNodeDir); err != nil {
-		return err
+	// Perform cleanup only if not requested to skip it.
+	cleanup := !opts.SkipCleanup
+	var cleanupErr error
+	if cleanup {
+		cleanupErr = os.RemoveAll(h.testNodeDir)
 	}
 
 	delete(testInstances, h.testNodeDir)
 
-	return nil
+	return errors.Join(shutdownErr, cleanupErr)
 }
-
-// TearDownOpts are options that can be passed to TearDown.
-type TearDownOpts struct{}
 
 // TearDown stops the running rpc test instance. All created processes are
 // killed, and temporary directories removed.
@@ -385,7 +426,7 @@ func (h *Harness) TearDown(opts *TearDownOpts) error {
 	harnessStateMtx.Lock()
 	defer harnessStateMtx.Unlock()
 
-	return h.tearDown()
+	return h.tearDown(opts)
 }
 
 // connectRPCClient attempts to establish an RPC connection to the created btcd
