@@ -258,13 +258,10 @@ func (n *node) cleanup() error {
 // won't send a signal. This way we can test cases where the expected behavior
 // is node shutdown.
 func (n *node) shutdown(signal bool) error {
-	if err := n.stop(signal); err != nil {
-		return err
-	}
-	if err := n.cleanup(); err != nil {
-		return err
-	}
-	return nil
+	stopErr := n.stop(signal)
+	cleanupErr := n.cleanup()
+
+	return errors.Join(stopErr, cleanupErr)
 }
 
 // genCertPair generates a key/cert pair to the paths provided.
