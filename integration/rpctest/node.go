@@ -5,6 +5,7 @@
 package rpctest
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -215,11 +216,17 @@ func (n *node) stop() error {
 		// or error starting the process
 		return nil
 	}
-	defer n.cmd.Wait()
+
+	var signalErr error
 	if runtime.GOOS == "windows" {
-		return n.cmd.Process.Signal(os.Kill)
+		signalErr = n.cmd.Process.Signal(os.Kill)
+	} else {
+		signalErr = n.cmd.Process.Signal(os.Interrupt)
 	}
-	return n.cmd.Process.Signal(os.Interrupt)
+
+	waitErr := n.cmd.Wait()
+
+	return errors.Join(signalErr, waitErr)
 }
 
 // cleanup cleanups process and args files. The file housing the pid of the
