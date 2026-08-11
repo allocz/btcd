@@ -360,7 +360,7 @@ func (h *Harness) tearDown() error {
 		h.BatchClient.WaitForShutdown()
 	}
 
-	if err := h.node.shutdown(); err != nil {
+	if err := h.node.shutdown(true); err != nil {
 		return err
 	}
 

@@ -209,8 +209,11 @@ func (n *node) start() error {
 
 // stop interrupts the running btcd process process, and waits until it exits
 // properly. On windows, interrupt is not supported, so a kill signal is used
-// instead
-func (n *node) stop() error {
+// instead.
+//
+// When signal is false, we skip sending the signal and wait for the node
+// process to stop by itself.
+func (n *node) stop(signal bool) error {
 	if n.cmd == nil || n.cmd.Process == nil {
 		// return if not properly initialized
 		// or error starting the process
@@ -218,9 +221,11 @@ func (n *node) stop() error {
 	}
 
 	var signalErr error
-	if runtime.GOOS == "windows" {
+	switch {
+	case signal && runtime.GOOS == "windows":
 		signalErr = n.cmd.Process.Signal(os.Kill)
-	} else {
+
+	case signal:
 		signalErr = n.cmd.Process.Signal(os.Interrupt)
 	}
 
@@ -248,8 +253,12 @@ func (n *node) cleanup() error {
 
 // shutdown terminates the running btcd process, and cleans up all
 // file/directories created by node.
-func (n *node) shutdown() error {
-	if err := n.stop(); err != nil {
+//
+// signal being false means that we will wait until node shutdowns itself, we
+// won't send a signal. This way we can test cases where the expected behavior
+// is node shutdown.
+func (n *node) shutdown(signal bool) error {
+	if err := n.stop(signal); err != nil {
 		return err
 	}
 	if err := n.cleanup(); err != nil {
