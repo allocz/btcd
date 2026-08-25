@@ -352,7 +352,7 @@ func (t *taprootSigVerifier) verifySig(sigHash []byte) bool {
 	// If we didn't find the entry in the cache, then we'll perform full
 	// verification as normal, adding the entry to the cache if it's found
 	// to be valid.
-	sigValid := t.sig.Verify(sigHash, t.pubKey)
+	sigValid := schnorr.Verify(t.sig, t.pubKey, sigHash)
 	if sigValid {
 		if t.sigCache != nil {
 			// The sig is valid, so we'll add it to the cache.

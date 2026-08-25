@@ -5,6 +5,7 @@ package schnorr
 import (
 	"fmt"
 
+	"github.com/allocz/secp256k1"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -231,6 +232,26 @@ func schnorrVerify(sig *Signature, hash []byte, pubKeyBytes []byte) error {
 func (sig *Signature) Verify(hash []byte, pubKey *btcec.PublicKey) bool {
 	pubkeyBytes := SerializePubKey(pubKey)
 	return schnorrVerify(sig, hash, pubkeyBytes) == nil
+}
+
+func Verify(sig *Signature, pubKey *btcec.PublicKey, hash []byte) bool {
+	var rs [64]byte
+	sig.r.PutBytesUnchecked(rs[:])
+	sig.s.PutBytesUnchecked(rs[32:])
+	var sig2 secp256k1.SchnorrSignature
+	err := sig2.FromBytes64(rs[:])
+	if err != nil {
+		return false
+	}
+
+	var pub2 secp256k1.PublicKey
+	xy := pubKey.SerializeUncompressed()
+	err = pub2.FromBytes64(xy[1:])
+	if err != nil {
+		return false
+	}
+
+	return sig2.Verify(&pub2, hash)
 }
 
 // zeroArray zeroes the memory of a scalar array.
