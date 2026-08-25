@@ -141,12 +141,12 @@ func (b *baseSigVerifier) verifySig(sigHash []byte) bool {
 		copy(sigHashBytes[:], sigHash[:])
 
 		valid = b.vm.sigCache.Exists(sigHashBytes, b.sigBytes, b.pkBytes)
-		if !valid && b.sig.Verify(sigHash, b.pubKey) {
+		if !valid && ecdsa.Verify(b.sig, b.pubKey, sigHash) {
 			b.vm.sigCache.Add(sigHashBytes, b.sigBytes, b.pkBytes)
 			valid = true
 		}
 	} else {
-		valid = b.sig.Verify(sigHash, b.pubKey)
+		valid = ecdsa.Verify(b.sig, b.pubKey, sigHash)
 	}
 
 	return valid

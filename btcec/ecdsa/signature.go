@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/allocz/secp256k1"
 	"github.com/btcsuite/btcd/btcec/v2"
 	secp_ecdsa "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 )
@@ -272,4 +273,24 @@ func VerifyLowS(sigStr []byte) error {
 	}
 	// Low-S, s <= N/2.
 	return nil
+}
+
+func Verify(sig *Signature, pub *btcec.PublicKey, msgHash []byte) bool {
+
+	r, s := sig.R(), sig.S()
+	var rs [64]byte
+	r.PutBytesUnchecked(rs[:])
+	s.PutBytesUnchecked(rs[32:])
+	var sig2 secp256k1.ECDSASignature
+	err := sig2.FromBytes64(rs[:])
+	if err != nil {
+		return false
+	}
+
+	xy := pub.SerializeUncompressed()
+	var pub2 secp256k1.PublicKey
+	// first byte is 0x04
+	pub2.FromBytes64(xy[1:])
+
+	return sig2.Verify(&pub2, msgHash)
 }
