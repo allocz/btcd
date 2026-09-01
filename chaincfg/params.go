@@ -372,6 +372,7 @@ var MainNetParams = Params{
 		{781565, newHashFromStr("00000000000000000002b8c04999434c33b8e033f11a977b288f8411766ee61c")},
 		{800000, newHashFromStr("00000000000000000002a7c4c1e48d76c5a37902165a270156b7a8d72728a054")},
 		{810000, newHashFromStr("000000000000000000028028ca82b6aa81ce789e4eb9e0321b74c3cbaf405dd1")},
+		{938343, newHashFromStr("00000000000000000000ccebd6d74d9194d8dcdc1d177c478e094bfad51ba5ac")},
 	},
 
 	// Consensus rule change deployments.
@@ -1028,7 +1029,9 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 		GenerateSupported:        false,
 
 		// Checkpoints ordered from oldest to newest.
-		Checkpoints: nil,
+		Checkpoints: []Checkpoint{
+			{293175, newHashFromStr("00000008414aab61092ef93f1aacc54cf9e9f16af29ddad493b908a01ff5c329")},
+		},
 
 		// Consensus rule change deployments.
 		//
