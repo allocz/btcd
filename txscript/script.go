@@ -524,8 +524,7 @@ func checkScriptParses(scriptVersion uint16, script []byte) error {
 }
 
 // IsUnspendable returns whether the passed public key script is unspendable, or
-// guaranteed to fail at execution.  This allows outputs to be pruned instantly
-// when entering the UTXO set.
+// guaranteed to fail at execution.
 //
 // NOTE: This function is only valid for version 0 scripts.  Since the function
 // does not accept a script version, the results are undefined for other script
@@ -544,6 +543,27 @@ func IsUnspendable(pkScript []byte) bool {
 	// The script is unspendable if it is guaranteed to fail at execution.
 	const scriptVersion = 0
 	return checkScriptParses(scriptVersion, pkScript) != nil
+}
+
+// IsOpReturnOrExceedsMaxSize uses the same logic as Bitcoin Core to decide if
+// an unspendable output should not be stored in the utxoset. This allows
+// outputs to be pruned instantly when entering the UTXO set.
+//
+// Note that invalid pkScript is unspendable, but Bitcoin Core still stores
+// them, doing the same here makes the audit of the utxoset easier, since we are
+// able to generate the same serialized hash as Bitcoin Core does.
+func IsOPReturnOrExceedsMaxSize(pkScript []byte) bool {
+	// The script is unspendable if starts with OP_RETURN or is guaranteed
+	// to fail at execution due to being larger than the max allowed script
+	// size.
+	switch {
+	case len(pkScript) > 0 && pkScript[0] == OP_RETURN:
+		return true
+	case len(pkScript) > MaxScriptSize:
+		return true
+	}
+
+	return false
 }
 
 // ScriptHasOpSuccess returns true if any op codes in the script contain an
