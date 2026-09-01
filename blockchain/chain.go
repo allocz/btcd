@@ -1218,7 +1218,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		// Connect the transactions to the cache.  All the txs are considered valid
 		// at this point as they have passed validation or was considered valid already.
 		stxos := make([]SpentTxOut, 0, countSpentOutputs(block))
-		err := b.utxoCache.connectTransactions(block, &stxos)
+		err := b.utxoCache.connectTransactions2(block, &stxos, flags)
 		if err != nil {
 			return false, err
 		}
