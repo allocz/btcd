@@ -30,6 +30,10 @@ const (
 	// not be performed.
 	BFNoPoWCheck
 
+	// BFUTXOSetCheckpoint is set when we are processing an UTXO set
+	// checkpointed chain.
+	BFUTXOSetCheckpoint
+
 	// BFNone is a convenience value to specifically indicate no flags.
 	BFNone BehaviorFlags = 0
 )
