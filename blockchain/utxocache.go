@@ -206,6 +206,12 @@ const (
 	FlushIfNeeded
 )
 
+var dummyUtxoEntry = &UtxoEntry{}
+
+type cacheOpts struct {
+	bflags BehaviorFlags
+}
+
 // utxoCache is a cached utxo view in the chainstate of a BlockChain.
 type utxoCache struct {
 	db database.DB
@@ -266,6 +272,12 @@ func (s *utxoCache) totalMemoryUsage() uint64 {
 //
 // The returned entries are NOT safe for concurrent access.
 func (s *utxoCache) fetchEntries(outpoints []wire.OutPoint) ([]*UtxoEntry, error) {
+	return s.fetchEntries2(outpoints, cacheOpts{})
+}
+
+func (s *utxoCache) fetchEntries2(outpoints []wire.OutPoint,
+	opts cacheOpts) ([]*UtxoEntry, error) {
+
 	entries := make([]*UtxoEntry, len(outpoints))
 	var (
 		missingOps    []wire.OutPoint
@@ -288,9 +300,32 @@ func (s *utxoCache) fetchEntries(outpoints []wire.OutPoint) ([]*UtxoEntry, error
 		missingOps = append(missingOps, outpoints[i])
 	}
 
-	// Return early and don't attempt access the database if we don't have any
-	// missing outpoints.
+	// Return early and don't attempt access the database if we don't have
+	// any missing outpoints.
 	if len(missingOps) == 0 {
+		return entries, nil
+	}
+
+	// To reduce I/O on cache misses when operating under assumeUTXO, we
+	// just add a dummy entry to the cache, assuming that we trust the
+	// checkpoint, we can also safely skip the prevout check.
+	//
+	// Also, when we reach an assumeUTXO checkpoint block, the utxo state
+	// will be hashed and must match the expected hash which is hardcoded.
+	if opts.bflags&BFAssumeUTXO == BFAssumeUTXO {
+		// Add each of the entries to the UTXO cache and update their
+		// memory usage.
+		for i := range missingOps {
+			s.cachedEntries.put(missingOps[i], dummyUtxoEntry,
+				s.totalEntryMemory)
+			s.totalEntryMemory += dummyUtxoEntry.memoryUsage()
+		}
+
+		// Fill in the entries with the dummy entry.
+		for i := range missingOpsIdx {
+			entries[missingOpsIdx[i]] = dummyUtxoEntry
+		}
+
 		return entries, nil
 	}
 
@@ -300,7 +335,8 @@ func (s *utxoCache) fetchEntries(outpoints []wire.OutPoint) ([]*UtxoEntry, error
 		utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
 
 		for i := range missingOps {
-			entry, err := dbFetchUtxoEntry(dbTx, utxoBucket, missingOps[i])
+			entry, err := dbFetchUtxoEntry(dbTx, utxoBucket,
+				missingOps[i])
 			if err != nil {
 				return err
 			}
@@ -399,9 +435,16 @@ func (s *utxoCache) addTxOuts(tx *btcutil.Tx, blockHeight int32) error {
 // will be marked as spent and if the utxo is fresh (meaning that the database on disk
 // never saw it), it will be removed from the cache.
 func (s *utxoCache) addTxIn(txIn *wire.TxIn, stxos *[]SpentTxOut) error {
+	return s.addTxIn2(txIn, stxos, cacheOpts{})
+}
+
+func (s *utxoCache) addTxIn2(txIn *wire.TxIn, stxos *[]SpentTxOut,
+	opts cacheOpts) error {
+
 	// Ensure the referenced utxo exists in the view.  This should
 	// never happen unless there is a bug is introduced in the code.
-	entries, err := s.fetchEntries([]wire.OutPoint{txIn.PreviousOutPoint})
+	entries, err := s.fetchEntries2([]wire.OutPoint{txIn.PreviousOutPoint},
+		opts)
 	if err != nil {
 		return err
 	}
@@ -449,14 +492,16 @@ func (s *utxoCache) addTxIn(txIn *wire.TxIn, stxos *[]SpentTxOut) error {
 // utxo that is being spent by the input will be marked as spent and if the utxo
 // is fresh (meaning that the database on disk never saw it), it will be removed
 // from the cache.
-func (s *utxoCache) addTxIns(tx *btcutil.Tx, stxos *[]SpentTxOut) error {
+func (s *utxoCache) addTxIns(tx *btcutil.Tx, stxos *[]SpentTxOut,
+	opts cacheOpts) error {
+
 	// Coinbase transactions don't have any inputs to spend.
 	if IsCoinBase(tx) {
 		return nil
 	}
 
 	for _, txIn := range tx.MsgTx().TxIn {
-		err := s.addTxIn(txIn, stxos)
+		err := s.addTxIn2(txIn, stxos, opts)
 		if err != nil {
 			return err
 		}
@@ -471,9 +516,10 @@ func (s *utxoCache) addTxIns(tx *btcutil.Tx, stxos *[]SpentTxOut) error {
 // be updated to append an entry for each spent txout.  An error will be returned
 // if the cache and the database does not contain the required utxos.
 func (s *utxoCache) connectTransaction(
-	tx *btcutil.Tx, blockHeight int32, stxos *[]SpentTxOut) error {
+	tx *btcutil.Tx, blockHeight int32, stxos *[]SpentTxOut,
+	opts cacheOpts) error {
 
-	err := s.addTxIns(tx, stxos)
+	err := s.addTxIns(tx, stxos, opts)
 	if err != nil {
 		return err
 	}
@@ -488,8 +534,14 @@ func (s *utxoCache) connectTransaction(
 // the passed block.  In addition, when the 'stxos' argument is not nil, it will
 // be updated to append an entry for each spent txout.
 func (s *utxoCache) connectTransactions(block *btcutil.Block, stxos *[]SpentTxOut) error {
+	return s.connectTransactions2(block, stxos, cacheOpts{})
+}
+
+func (s *utxoCache) connectTransactions2(block *btcutil.Block, stxos *[]SpentTxOut,
+	opts cacheOpts) error {
+
 	for _, tx := range block.Transactions() {
-		err := s.connectTransaction(tx, block.Height(), stxos)
+		err := s.connectTransaction(tx, block.Height(), stxos, opts)
 		if err != nil {
 			return err
 		}
