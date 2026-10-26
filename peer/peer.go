@@ -972,8 +972,8 @@ func (p *Peer) PushGetBlocksMsg(locator blockchain.BlockLocator, stopHash *chain
 	return nil
 }
 
-// PushGetHeadersMsg sends a getblocks message for the provided block locator
-// and stop hash.  It will ignore back-to-back duplicate requests.
+// PushGetHeadersMsg sends a getheaders message for the provided block locator
+// and stop hash. It will ignore back-to-back duplicate requests.
 //
 // This function is safe for concurrent access.
 func (p *Peer) PushGetHeadersMsg(locator blockchain.BlockLocator, stopHash *chainhash.Hash) error {
