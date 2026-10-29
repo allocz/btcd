@@ -5,6 +5,8 @@ package blockchain
 
 import (
 	"math"
+	"os"
+	"runtime"
 	"testing"
 )
 
@@ -67,5 +69,97 @@ func TestCalculateEntries(t *testing.T) {
 					i, gotRoughMapSizeWrong/2, gotRoughMapSizeWrong)
 			}
 		}
+	}
+}
+
+// sampledAlloc uses sampling to perform allocations and return the first
+// allocation size that reaches minSamples. We have to use sampling because the
+// runtime introduces non determinism in respect with total bytes allocated
+// between two points in code.
+func sampledAlloc(count int, allocf func(count int) uint64) uint64 {
+	const sampleLimit = 100000
+	const minSamples = 100
+
+	// We have to use sampling because the runtime introduces non
+	// determinism in respect with total bytes allocated between
+	// two points in code.
+	samples := make(map[uint64]int)
+	var lastSample uint64
+	var reachedMinSamples bool
+	for range sampleLimit {
+		lastSample = allocf(count)
+		samples[lastSample]++
+		if samples[lastSample] >= minSamples {
+			reachedMinSamples = true
+			break
+		}
+	}
+
+	if !reachedMinSamples {
+		panic("not reached min samples")
+	}
+
+	return lastSample
+}
+
+// sliceSink is used to avoid compiler optimizations.
+var sliceSink [][]byte
+
+// TestRoundupsize asserts that the rounded up size maches the expectations for
+// all size classes by comparing against runtime allocations. In case of
+// breakages in the allocator behavior, this test should fail.
+func TestRoundupsize(t *testing.T) {
+	// For some reason the allocation sampling fails when make unit-race is
+	// executed. But we don't use concurrency here, so is safe to not run
+	// this test with race detection.
+	if os.Getenv("GORACE") != "" {
+		return
+	}
+
+	const n = 8
+
+	// allocf allocates n byte slices of count capacity and returns the
+	// total bytes allocated.
+	allocF := func(count int) uint64 {
+		var ms0, ms1 runtime.MemStats
+
+		s := make([][]byte, n)
+		runtime.ReadMemStats(&ms0)
+		for i := range n {
+			s[i] = make([]byte, count)
+		}
+		runtime.ReadMemStats(&ms1)
+		sliceSink = s
+		sliceSink = nil
+
+		return ms1.TotalAlloc - ms0.TotalAlloc
+	}
+
+	// Allocations smaller than max size class size should align by the size
+	// of the next class.
+	for _, i := range class_to_size[1:] {
+		want := sampledAlloc(int(i-1), allocF) / n
+		got := uint64(roundupsize(uintptr(i - 1)))
+
+		if want != got {
+			t.Errorf("i %d; want %d, got %d", i, want, got)
+		}
+	}
+
+	// Allocations greater than the last class should align by the page
+	// size.
+	lastClassSize := class_to_size[len(class_to_size)-1]
+
+	want := alignUp(uintptr(lastClassSize+1), _PageSize)
+	got := roundupsize(uintptr(lastClassSize + 1))
+	real := sampledAlloc(int(lastClassSize+1), allocF) / n
+
+	if want != got {
+		t.Errorf("size %d; want %d got %d", lastClassSize+1, want, got)
+	}
+
+	if want != uintptr(real) {
+		t.Errorf("size %d; want %d real %d", lastClassSize+1, want,
+			real)
 	}
 }
