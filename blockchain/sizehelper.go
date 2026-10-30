@@ -338,3 +338,46 @@ func mapSize(hint int, groupSize uint64) uint64 {
 
 	return estimatedSize
 }
+
+// hintForSize returns the map hint at the maximum load factor for maxSize,
+// meaning that the returned hint allocates a map up to maxSize and hint >> 1
+// allocates a map of nearly 50% of the size.
+func hintForSize(maxSize, groupSize uint64) int {
+	// start with a near guess.
+	slots := (maxSize / groupSize) * slotsPerGroup
+	slots = alignUpPow2(slots)
+
+	hint := (slots * mapLoadFactorNum) / mapLoadFactorDen
+
+	if hint == 0 || maxSize == 0 {
+		return slotsPerGroup
+	}
+
+	// Double hint while it fits maxSize.
+	for hint < 1<<62 {
+		size := mapSize(int(hint), groupSize)
+
+		if size <= maxSize {
+			hint <<= 1
+			continue
+		}
+
+		break
+	}
+
+	// Divide hint by 2 until it fits maxSize.
+	for hint > 0 {
+		size := mapSize(int(hint), groupSize)
+
+		if size > maxSize {
+			hint >>= 1
+			continue
+		}
+
+		break
+	}
+
+	// Never return less than slotsPerGroup, as any map will allocate at
+	// least a single group when setting a value.
+	return max(int(hint), slotsPerGroup)
+}

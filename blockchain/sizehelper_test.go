@@ -289,3 +289,49 @@ func TestMapSize(t *testing.T) {
 		}
 	}
 }
+
+// TestHintForSize asserts that given maxSize, hintForSize returns a hint that
+// allocates a map of up to maxSize. Also, hint >> 1 should allocate a map of
+// nearly half the previous size.
+func TestHintForSize(t *testing.T) {
+	tests := []struct {
+		name         string
+		maxSize      uint64
+		wantHint     int
+		wantSize     uint64
+		wantPrevSize uint64
+	}{
+		{"01", 0, 8, 48, 48},
+		{"02", 1, 8, 48, 48},
+		{"03", 2, 8, 48, 48},
+		{"04", 4, 8, 48, 48},
+		{"05", 8, 8, 48, 48},
+		{"06", 1024, 12, 984, 48},
+		{"07", 2048, 24, 1880, 984},
+		{"08", 1 << 20, 12743, 918192, 459120},
+		{"09", 2 << 20, 25486, 1836336, 918192},
+		{"10", 256 << 20, 3262236, 235044912, 117522480},
+		{"11", 512 << 20, 6524472, 470089776, 235044912},
+		{"12", 1 << 30, 13048945, 940179504, 470089776},
+	}
+
+	for _, test := range tests {
+		hint := hintForSize(test.maxSize, groupSize)
+		if test.wantHint != hint {
+			t.Errorf("test %s; bad hint; want %d got %d",
+				test.name, test.wantHint, hint)
+		}
+
+		size := mapSize(hint, groupSize)
+		if test.wantSize != size {
+			t.Errorf("test %s; bad size; want %d got %d",
+				test.name, test.wantSize, size)
+		}
+
+		prevSize := mapSize(hint>>1, groupSize)
+		if test.wantPrevSize != prevSize {
+			t.Errorf("test %s; bad prevSize; want %d got %d",
+				test.name, test.wantPrevSize, prevSize)
+		}
+	}
+}
