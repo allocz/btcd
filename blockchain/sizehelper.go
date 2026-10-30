@@ -25,18 +25,29 @@ const (
 	// https://github.com/golang/go/issues/34561#issuecomment-536115805
 	bucketSize = 16 + uint64Size*outpointSize + uint64Size*uint64Size
 
-	// This value is calculated by running the following on a 64-bit system:
-	//   unsafe.Sizeof(UtxoEntry{})
-	baseEntrySize = 40
+	// baseEntrySize is the allocation size of an UtxoEntry, the value is
+	// calculated by running the following on a 64-bit system:
+	//
+	// 	roundupsize(unsafe.Sizeof(UtxoEntry{}))
+	//
+	// We add 8 because the size of the struct itself is 40 bytes, but we
+	// have 8 bytes of overhead for each allocation (which uses a group of
+	// 48 bytes in this case). We can reduce this in the future by
+	// allocating in batch instead of one allocation per entry in the
+	// utxocache.
+	baseEntrySize = 40 + 8
 
-	// pubKeyHashLen is the length of a P2PKH script.
-	pubKeyHashLen = 25
+	// pubKeyHashLen is the allocation size of a P2PKH script. We add 7
+	// because the size of the slice itself is 25 bytes, but we have 7 bytes
+	// of overhead for each allocation (uses a group of 32 bytes). We can
+	// reduce this in the future by allocating in batch instead of one
+	// allocation per entry in the utxocache.
+	pubKeyHashLen = 25 + 7
 
-	// avgEntrySize is how much each entry we expect it to be.  Since most
-	// txs are p2pkh, we can assume the entry to be more or less the size
-	// of a p2pkh tx.  We add on 7 to make it 32 since 64 bit systems will
-	// align by 8 bytes.
-	avgEntrySize = baseEntrySize + (pubKeyHashLen + 7)
+	// avgEntrySize is how much we expect that each entry will allocate.
+	// Since most txs are p2pkh, we can assume the entry to be more or less
+	// the size of a p2pkh output.
+	avgEntrySize = baseEntrySize + pubKeyHashLen
 )
 
 // The code here is shamelessly taken from the go runtime package.  All the relevant

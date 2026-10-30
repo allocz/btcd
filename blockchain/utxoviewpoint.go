@@ -78,7 +78,7 @@ func (entry *UtxoEntry) memoryUsage() uint64 {
 		return 0
 	}
 
-	return baseEntrySize + uint64(cap(entry.pkScript))
+	return baseEntrySize + uint64(roundupsize(uintptr(cap(entry.pkScript))))
 }
 
 // IsCoinBase returns whether or not the output was contained in a coinbase

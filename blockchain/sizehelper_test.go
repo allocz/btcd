@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"testing"
+	"unsafe"
 )
 
 // calculateEntries returns a number of entries that will make the map allocate
@@ -161,5 +162,33 @@ func TestRoundupsize(t *testing.T) {
 	if want != uintptr(real) {
 		t.Errorf("size %d; want %d real %d", lastClassSize+1, want,
 			real)
+	}
+}
+
+// TestAvgEntrySize asserts that the avgEntrySize is being calculated correctly,
+// accounting for the inneficiencies of the current implementation caused by
+// allocating each entry with an allocation for the UtxoEntry and another for
+// the scriptPubKey slice.
+//
+// This test remains true while we don't change the utxocache implementation to
+// allocate in batch instead of at least two allocations for each added entry.
+func TestAvgEntrySize(t *testing.T) {
+	utxoEntryAlloc := roundupsize(unsafe.Sizeof(UtxoEntry{}))
+	if baseEntrySize != utxoEntryAlloc {
+		t.Errorf("bad base entry size; want %d got %d", baseEntrySize,
+			utxoEntryAlloc)
+	}
+
+	const p2pkhPubScriptLen = 25
+	pkhAlloc := roundupsize(p2pkhPubScriptLen)
+	if pubKeyHashLen != pkhAlloc {
+		t.Errorf("bad pubkeyHashLen; want %d got %d", pubKeyHashLen,
+			pkhAlloc)
+	}
+
+	entryAlloc := roundupsize(utxoEntryAlloc + pkhAlloc)
+	if avgEntrySize != entryAlloc {
+		t.Errorf("bad avgEntrySize; want %d got %d", avgEntrySize,
+			entryAlloc)
 	}
 }
