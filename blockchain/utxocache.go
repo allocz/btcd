@@ -17,12 +17,13 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 )
 
-// mapSlice is a slice of maps for utxo entries.  The slice of maps are needed to
-// guarantee that the map will only take up N amount of bytes.  As of v1.20, the
-// go runtime will allocate 2^N + few extra buckets, meaning that for large N, we'll
-// allocate a lot of extra memory if the amount of entries goes over the previously
-// allocated buckets.  A slice of maps allows us to have a better control of how much
-// total memory gets allocated by all the maps.
+// mapSlice is a slice of maps for utxo entries. The slice of maps is needed to
+// guarantee that the map will only take up N amount of bytes. As of v1.24, the
+// Go runtime will allocate 2^N table groups, meaning that for large N, we'll
+// allocate a lot of extra memory if the amount of entries goes over the
+// previously allocated groups. A slice of maps allows us to have a better
+// control of how much total memory gets allocated by all the maps, because we
+// never grow the map above the allocation hint.
 type mapSlice struct {
 	// mtx protects against concurrent access for the map slice.
 	mtx sync.Mutex
@@ -62,7 +63,7 @@ func (ms *mapSlice) size() int {
 
 	var size int
 	for _, num := range ms.maxEntries {
-		size += calculateRoughMapSize(num, bucketSize)
+		size += int(mapSize(num, groupSize))
 	}
 
 	return size
@@ -143,6 +144,37 @@ func (ms *mapSlice) delete(op wire.OutPoint) {
 	}
 }
 
+// entriesForSize returns how many entries we should allocate for a map of up to
+// maxSize. The avgEntrySize is included in the calculation, as the UtxoEntry
+// is allocated outside the map.
+//
+// We return half of the hint to increase the probability of using all the slots
+// of the map before flushing and that there's memory remaining to allocate more
+// maps if needed.
+//
+// If maxSize is too small, then we return a hint to allocate a map of nearly
+// 1MiB, avoiding the allocation of multiple maps with a few entries.
+func entriesForSize(maxSize uint64) int {
+	// As there's multiple instances of UtxoEntry allocated externally to
+	// the map and the load factor of the map is 8/7, the map is dimensioned
+	// to use 7 of each 8 slots, and therefore we add avgEntrySize*7 to
+	// reserve memory for the entries.
+	gSize := groupSize + avgEntrySize*mapLoadFactorNum
+
+	// We divide the hint by 2 to get a hint that will allocate a map of
+	// half the size and use the maximum load factor, increasing the chances
+	// of filling the entire map instead of flushing the cache before all
+	// entries are used.
+	hint := hintForSize(maxSize, uint64(gSize)) >> 1
+
+	const hintFor1MiBMap = 12743
+
+	// Never return a map smaller than nearly 1MiB. If for some reason we
+	// use all the reserved memory, this avoids potentially allocating
+	// multiple maps with 8 slots each.
+	return max(hintFor1MiBMap, hint)
+}
+
 // makeNewMap makes and appends the new map into the map slice.
 //
 // This function is NOT safe for concurrent access and must be called with the
@@ -151,15 +183,11 @@ func (ms *mapSlice) makeNewMap(totalEntryMemory uint64) map[wire.OutPoint]*UtxoE
 	// Get the size of the leftover memory.
 	memSize := ms.maxTotalMemoryUsage - totalEntryMemory
 	for _, maxNum := range ms.maxEntries {
-		memSize -= uint64(calculateRoughMapSize(maxNum, bucketSize))
+		memSize -= mapSize(maxNum, groupSize)
 	}
 
 	// Get a new map that's sized to house inside the leftover memory.
-	// -1 on the returned value will make the map allocate half as much total
-	// bytes.  This is done to make sure there's still room left for utxo
-	// entries to take up.
-	numMaxElements := calculateMinEntries(int(memSize), bucketSize+avgEntrySize)
-	numMaxElements -= 1
+	numMaxElements := entriesForSize(totalEntryMemory)
 	ms.maxEntries = append(ms.maxEntries, numMaxElements)
 	ms.maps = append(ms.maps, make(map[wire.OutPoint]*UtxoEntry, numMaxElements))
 
@@ -229,10 +257,7 @@ type utxoCache struct {
 // newUtxoCache initiates a new utxo cache instance with its memory usage limited
 // to the given maximum.
 func newUtxoCache(db database.DB, maxTotalMemoryUsage uint64) *utxoCache {
-	// While the entry isn't included in the map size, add the average size to the
-	// bucket size so we get some leftover space for entries to take up.
-	numMaxElements := calculateMinEntries(int(maxTotalMemoryUsage), bucketSize+avgEntrySize)
-	numMaxElements -= 1
+	numMaxElements := entriesForSize(maxTotalMemoryUsage)
 
 	log.Infof("Pre-allocating for %d MiB", maxTotalMemoryUsage/(1024*1024)+1)
 
