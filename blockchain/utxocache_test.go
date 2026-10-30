@@ -44,7 +44,7 @@ func TestMapSlice(t *testing.T) {
 	for _, test := range tests {
 		m := make(map[wire.OutPoint]*UtxoEntry)
 
-		maxSize := calculateRoughMapSize(1000, bucketSize)
+		maxSize := mapSize(1000, groupSize)
 
 		maxEntriesFirstMap := 500
 		ms1 := make(map[wire.OutPoint]*UtxoEntry, maxEntriesFirstMap)
@@ -130,7 +130,7 @@ func TestMapsliceConcurrency(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		maxSize := calculateRoughMapSize(1000, bucketSize)
+		maxSize := mapSize(1000, groupSize)
 
 		maxEntriesFirstMap := 500
 		ms1 := make(map[wire.OutPoint]*UtxoEntry, maxEntriesFirstMap)
