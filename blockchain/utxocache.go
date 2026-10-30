@@ -31,11 +31,12 @@ type mapSlice struct {
 	// maps are the underlying maps in the slice of maps.
 	maps []map[wire.OutPoint]*UtxoEntry
 
-	// maxEntries is the maximum amount of elements that the map is allocated for.
+	// maxEntries is the maximum amount of elements that the map is
+	// allocated for.
 	maxEntries []int
 
-	// maxTotalMemoryUsage is the maximum memory usage in bytes that the state
-	// should contain in normal circumstances.
+	// maxTotalMemoryUsage is the maximum memory usage in bytes that the
+	// state should contain in normal circumstances.
 	maxTotalMemoryUsage uint64
 }
 
@@ -70,7 +71,7 @@ func (ms *mapSlice) size() int {
 }
 
 // get looks for the outpoint in all the maps in the map slice and returns
-// the entry.  nil and false is returned if the outpoint is not found.
+// the entry. nil and false is returned if the outpoint is not found.
 //
 // This function is safe for concurrent access.
 func (ms *mapSlice) get(op wire.OutPoint) (*UtxoEntry, bool) {
@@ -90,13 +91,16 @@ func (ms *mapSlice) get(op wire.OutPoint) (*UtxoEntry, bool) {
 	return nil, false
 }
 
-// put puts the outpoint and the entry into one of the maps in the map slice.  If the
-// existing maps are all full, it will allocate a new map based on how much memory we
-// have left over.  Leftover memory is calculated as:
-// maxTotalMemoryUsage - (totalEntryMemory + mapSlice.size())
+// put puts the outpoint and the entry into one of the maps in the map slice.
+// If the existing maps are all full, it will allocate a new map based on how
+// much memory we have left over. Leftover memory is calculated as:
+//
+//	maxTotalMemoryUsage - (totalEntryMemory + mapSlice.size())
 //
 // This function is safe for concurrent access.
-func (ms *mapSlice) put(op wire.OutPoint, entry *UtxoEntry, totalEntryMemory uint64) {
+func (ms *mapSlice) put(op wire.OutPoint, entry *UtxoEntry,
+	totalEntryMemory uint64) {
+
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
@@ -107,7 +111,9 @@ func (ms *mapSlice) put(op wire.OutPoint, entry *UtxoEntry, totalEntryMemory uin
 		if found {
 			// If the key is found, overwrite it.
 			m[op] = entry
-			return // Return as we were successful in adding the entry.
+
+			// Return as we were successful in adding the entry.
+			return
 		}
 	}
 
@@ -115,8 +121,8 @@ func (ms *mapSlice) put(op wire.OutPoint, entry *UtxoEntry, totalEntryMemory uin
 		m := ms.maps[i]
 		if len(m) >= maxNum {
 			// Don't try to insert if the map already at max since
-			// that'll force the map to allocate double the memory it's
-			// currently taking up.
+			// that'll force the map to allocate double the memory
+			// it's currently taking up.
 			continue
 		}
 
@@ -124,9 +130,9 @@ func (ms *mapSlice) put(op wire.OutPoint, entry *UtxoEntry, totalEntryMemory uin
 		return // Return as we were successful in adding the entry.
 	}
 
-	// We only reach this code if we've failed to insert into the map above as
-	// all the current maps were full.  We thus make a new map and insert into
-	// it.
+	// We only reach this code if we've failed to insert into the map above
+	// as all the current maps were full. We thus make a new map and insert
+	// into it.
 	m := ms.makeNewMap(totalEntryMemory)
 	m[op] = entry
 }
@@ -179,7 +185,9 @@ func entriesForSize(maxSize uint64) int {
 //
 // This function is NOT safe for concurrent access and must be called with the
 // lock held.
-func (ms *mapSlice) makeNewMap(totalEntryMemory uint64) map[wire.OutPoint]*UtxoEntry {
+func (ms *mapSlice) makeNewMap(
+	totalEntryMemory uint64) map[wire.OutPoint]*UtxoEntry {
+
 	// Get the size of the leftover memory.
 	memSize := ms.maxTotalMemoryUsage - totalEntryMemory
 	for _, maxNum := range ms.maxEntries {
@@ -189,12 +197,15 @@ func (ms *mapSlice) makeNewMap(totalEntryMemory uint64) map[wire.OutPoint]*UtxoE
 	// Get a new map that's sized to house inside the leftover memory.
 	numMaxElements := entriesForSize(totalEntryMemory)
 	ms.maxEntries = append(ms.maxEntries, numMaxElements)
-	ms.maps = append(ms.maps, make(map[wire.OutPoint]*UtxoEntry, numMaxElements))
+	ms.maps = append(
+		ms.maps, make(map[wire.OutPoint]*UtxoEntry, numMaxElements),
+	)
 
 	return ms.maps[len(ms.maps)-1]
 }
 
-// deleteMaps deletes all maps except for the first one which should be the biggest.
+// deleteMaps deletes all maps except for the first one which should be the
+// biggest.
 //
 // This function is safe for concurrent access.
 func (ms *mapSlice) deleteMaps() {
@@ -207,10 +218,10 @@ func (ms *mapSlice) deleteMaps() {
 }
 
 const (
-	// utxoFlushPeriodicInterval is the interval at which a flush is performed
-	// when the flush mode FlushPeriodic is used.  This is used when the initial
-	// block download is complete and it's useful to flush periodically in case
-	// of unforeseen shutdowns.
+	// utxoFlushPeriodicInterval is the interval at which a flush is
+	// performed when the flush mode FlushPeriodic is used. This is used
+	// when the initial block download is complete and it's useful to flush
+	// periodically in case of unforeseen shutdowns.
 	utxoFlushPeriodicInterval = time.Minute * 5
 )
 
@@ -219,18 +230,20 @@ type FlushMode uint8
 
 const (
 	// FlushRequired is the flush mode that means a flush must be performed
-	// regardless of the cache state.  For example right before shutting down.
+	// regardless of the cache state. For example right before shutting
+	// down.
 	FlushRequired FlushMode = iota
 
 	// FlushPeriodic is the flush mode that means a flush can be performed
-	// when it would be almost needed.  This is used to periodically signal when
-	// no I/O heavy operations are expected soon, so there is time to flush.
+	// when it would be almost needed. This is used to periodically signal
+	// when no I/O heavy operations are expected soon, so there is time to
+	// flush.
 	FlushPeriodic
 
-	// FlushIfNeeded is the flush mode that means a flush must be performed only
-	// if the cache is exceeding a safety threshold very close to its maximum
-	// size.  This is used mostly internally in between operations that can
-	// increase the cache size.
+	// FlushIfNeeded is the flush mode that means a flush must be performed
+	// only if the cache is exceeding a safety threshold very close to its
+	// maximum size. This is used mostly internally in between operations
+	// that can increase the cache size.
 	FlushIfNeeded
 )
 
@@ -238,14 +251,15 @@ const (
 type utxoCache struct {
 	db database.DB
 
-	// maxTotalMemoryUsage is the maximum memory usage in bytes that the state
-	// should contain in normal circumstances.
+	// maxTotalMemoryUsage is the maximum memory usage in bytes that the
+	// state should contain in normal circumstances.
 	maxTotalMemoryUsage uint64
 
-	// cachedEntries keeps the internal cache of the utxo state.  The tfModified
-	// flag indicates that the state of the entry (potentially) deviates from the
-	// state in the database.  Explicit nil values in the map are used to
-	// indicate that the database does not contain the entry.
+	// cachedEntries keeps the internal cache of the utxo state. The
+	// tfModified flag indicates that the state of the entry (potentially)
+	// deviates from the state in the database. Explicit nil values in the
+	// map are used to indicate that the database does not contain the
+	// entry.
 	cachedEntries    mapSlice
 	totalEntryMemory uint64 // Total memory usage in bytes.
 
@@ -254,12 +268,13 @@ type utxoCache struct {
 	lastFlushTime time.Time
 }
 
-// newUtxoCache initiates a new utxo cache instance with its memory usage limited
-// to the given maximum.
+// newUtxoCache initiates a new utxo cache instance with its memory usage
+// limited to the given maximum.
 func newUtxoCache(db database.DB, maxTotalMemoryUsage uint64) *utxoCache {
 	numMaxElements := entriesForSize(maxTotalMemoryUsage)
 
-	log.Infof("Pre-allocating for %d MiB", maxTotalMemoryUsage/(1024*1024)+1)
+	log.Infof("Pre-allocating for %d MiB",
+		maxTotalMemoryUsage/(1024*1024)+1)
 
 	m := make(map[wire.OutPoint]*UtxoEntry, numMaxElements)
 
@@ -284,13 +299,15 @@ func (s *utxoCache) totalMemoryUsage() uint64 {
 	return size
 }
 
-// fetchEntries returns the UTXO entries for the given outpoints.  The function always
-// returns as many entries as there are outpoints and the returns entries are in the
-// same order as the outpoints.  It returns nil if there is no entry for the outpoint
-// in the UTXO set.
+// fetchEntries returns the UTXO entries for the given outpoints. The function
+// always returns as many entries as there are outpoints and the returns entries
+// are in the same order as the outpoints. It returns nil if there is no entry
+// for the outpoint in the UTXO set.
 //
 // The returned entries are NOT safe for concurrent access.
-func (s *utxoCache) fetchEntries(outpoints []wire.OutPoint) ([]*UtxoEntry, error) {
+func (s *utxoCache) fetchEntries(
+	outpoints []wire.OutPoint) ([]*UtxoEntry, error) {
+
 	entries := make([]*UtxoEntry, len(outpoints))
 	var (
 		missingOps    []wire.OutPoint
@@ -302,7 +319,7 @@ func (s *utxoCache) fetchEntries(outpoints []wire.OutPoint) ([]*UtxoEntry, error
 			continue
 		}
 
-		// At this point, we have missing outpoints.  Allocate them now
+		// At this point, we have missing outpoints. Allocate them now
 		// so that we never allocate if the cache never misses.
 		if len(missingOps) == 0 {
 			missingOps = make([]wire.OutPoint, 0, len(outpoints))
@@ -313,8 +330,8 @@ func (s *utxoCache) fetchEntries(outpoints []wire.OutPoint) ([]*UtxoEntry, error
 		missingOps = append(missingOps, outpoints[i])
 	}
 
-	// Return early and don't attempt access the database if we don't have any
-	// missing outpoints.
+	// Return early and don't attempt access the database if we don't have
+	// any missing outpoints.
 	if len(missingOps) == 0 {
 		return entries, nil
 	}
@@ -325,7 +342,9 @@ func (s *utxoCache) fetchEntries(outpoints []wire.OutPoint) ([]*UtxoEntry, error
 		utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
 
 		for i := range missingOps {
-			entry, err := dbFetchUtxoEntry(dbTx, utxoBucket, missingOps[i])
+			entry, err := dbFetchUtxoEntry(
+				dbTx, utxoBucket, missingOps[i],
+			)
 			if err != nil {
 				return err
 			}
@@ -346,7 +365,9 @@ func (s *utxoCache) fetchEntries(outpoints []wire.OutPoint) ([]*UtxoEntry, error
 	// as a miss; this prevents future lookups to perform the same database
 	// fetch.
 	for i := range dbEntries {
-		s.cachedEntries.put(missingOps[i], dbEntries[i], s.totalEntryMemory)
+		s.cachedEntries.put(
+			missingOps[i], dbEntries[i], s.totalEntryMemory,
+		)
 		s.totalEntryMemory += dbEntries[i].memoryUsage()
 	}
 
@@ -359,11 +380,11 @@ func (s *utxoCache) fetchEntries(outpoints []wire.OutPoint) ([]*UtxoEntry, error
 }
 
 // addTxOut adds the specified output to the cache if it is not provably
-// unspendable.  When the cache already has an entry for the output, it will be
-// overwritten with the given output.  All fields will be updated for existing
+// unspendable. When the cache already has an entry for the output, it will be
+// overwritten with the given output. All fields will be updated for existing
 // entries since it's possible it has changed during a reorg.
-func (s *utxoCache) addTxOut(outpoint wire.OutPoint, txOut *wire.TxOut, isCoinBase bool,
-	blockHeight int32) error {
+func (s *utxoCache) addTxOut(outpoint wire.OutPoint, txOut *wire.TxOut,
+	isCoinBase bool, blockHeight int32) error {
 
 	// Don't add provably unspendable outputs.
 	if txscript.IsUnspendable(txOut.PkScript) {
@@ -373,12 +394,13 @@ func (s *utxoCache) addTxOut(outpoint wire.OutPoint, txOut *wire.TxOut, isCoinBa
 	entry := new(UtxoEntry)
 	entry.amount = txOut.Value
 
-	// Deep copy the script when the script in the entry differs from the one in
-	// the txout.  This is required since the txout script is a subslice of the
-	// overall contiguous buffer that the msg tx houses for all scripts within
-	// the tx.  It is deep copied here since this entry may be added to the utxo
-	// cache, and we don't want the utxo cache holding the entry to prevent all
-	// of the other tx scripts from getting garbage collected.
+	// Deep copy the script when the script in the entry differs from the
+	// one in the txout. This is required since the txout script is a
+	// subslice of the overall contiguous buffer that the msg tx houses for
+	// all scripts within the tx. It is deep copied here since this entry
+	// may be added to the utxo cache, and we don't want the utxo cache
+	// holding the entry to prevent all of the other tx scripts from getting
+	// garbage collected.
 	entry.pkScript = make([]byte, len(txOut.PkScript))
 	copy(entry.pkScript, txOut.PkScript)
 
@@ -395,8 +417,8 @@ func (s *utxoCache) addTxOut(outpoint wire.OutPoint, txOut *wire.TxOut, isCoinBa
 }
 
 // addTxOuts adds all outputs in the passed transaction which are not provably
-// unspendable to the view.  When the view already has entries for any of the
-// outputs, they are simply marked unspent.  All fields will be updated for
+// unspendable to the view. When the view already has entries for any of the
+// outputs, they are simply marked unspent. All fields will be updated for
 // existing entries since it's possible it has changed during a reorg.
 func (s *utxoCache) addTxOuts(tx *btcutil.Tx, blockHeight int32) error {
 	// Loop all of the transaction outputs and add those which are not
@@ -404,10 +426,10 @@ func (s *utxoCache) addTxOuts(tx *btcutil.Tx, blockHeight int32) error {
 	isCoinBase := IsCoinBase(tx)
 	prevOut := wire.OutPoint{Hash: *tx.Hash()}
 	for txOutIdx, txOut := range tx.MsgTx().TxOut {
-		// Update existing entries.  All fields are updated because it's
+		// Update existing entries. All fields are updated because it's
 		// possible (although extremely unlikely) that the existing
 		// entry is being replaced by a different transaction with the
-		// same hash.  This is allowed so long as the previous
+		// same hash. This is allowed so long as the previous
 		// transaction is fully spent.
 		prevOut.Index = uint32(txOutIdx)
 		err := s.addTxOut(prevOut, txOut, isCoinBase, blockHeight)
@@ -419,12 +441,12 @@ func (s *utxoCache) addTxOuts(tx *btcutil.Tx, blockHeight int32) error {
 	return nil
 }
 
-// addTxIn will add the given input to the cache if the previous outpoint the txin
-// is pointing to exists in the utxo set.  The utxo that is being spent by the input
-// will be marked as spent and if the utxo is fresh (meaning that the database on disk
-// never saw it), it will be removed from the cache.
+// addTxIn will add the given input to the cache if the previous outpoint the
+// txin is pointing to exists in the utxo set. The utxo that is being spent by
+// the input will be marked as spent and if the utxo is fresh (meaning that the
+// database on disk never saw it), it will be removed from the cache.
 func (s *utxoCache) addTxIn(txIn *wire.TxIn, stxos *[]SpentTxOut) error {
-	// Ensure the referenced utxo exists in the view.  This should
+	// Ensure the referenced utxo exists in the view. This should
 	// never happen unless there is a bug is introduced in the code.
 	entries, err := s.fetchEntries([]wire.OutPoint{txIn.PreviousOutPoint})
 	if err != nil {
@@ -452,16 +474,17 @@ func (s *utxoCache) addTxIn(txIn *wire.TxIn, stxos *[]SpentTxOut) error {
 	// Mark the entry as spent.
 	entry.Spend()
 
-	// If an entry is fresh it indicates that this entry was spent before it could be
-	// flushed to the database. Because of this, we can just delete it from the map of
-	// cached entries.
+	// If an entry is fresh it indicates that this entry was spent before it
+	// could be flushed to the database. Because of this, we can just delete
+	// it from the map of cached entries.
 	if entry.isFresh() {
 		// If the entry is fresh, we will always have it in the cache.
 		s.cachedEntries.delete(txIn.PreviousOutPoint)
 		s.totalEntryMemory -= entry.memoryUsage()
 	} else {
-		// Can leave the entry to be garbage collected as the only purpose
-		// of this entry now is so that the entry on disk can be deleted.
+		// Can leave the entry to be garbage collected as the only
+		// purpose of this entry now is so that the entry on disk can be
+		// deleted.
 		entry = nil
 		s.totalEntryMemory -= entry.memoryUsage()
 	}
@@ -470,7 +493,7 @@ func (s *utxoCache) addTxIn(txIn *wire.TxIn, stxos *[]SpentTxOut) error {
 }
 
 // addTxIns will add the given inputs of the tx if it's not a coinbase tx and if
-// the previous output that the input is pointing to exists in the utxo set.  The
+// the previous output that the input is pointing to exists in the utxo set. The
 // utxo that is being spent by the input will be marked as spent and if the utxo
 // is fresh (meaning that the database on disk never saw it), it will be removed
 // from the cache.
@@ -491,10 +514,11 @@ func (s *utxoCache) addTxIns(tx *btcutil.Tx, stxos *[]SpentTxOut) error {
 }
 
 // connectTransaction updates the cache by adding all new utxos created by the
-// passed transaction and marking and/or removing all utxos that the transactions
-// spend as spent.  In addition, when the 'stxos' argument is not nil, it will
-// be updated to append an entry for each spent txout.  An error will be returned
-// if the cache and the database does not contain the required utxos.
+// passed transaction and marking and/or removing all utxos that the
+// transactions spend as spent. In addition, when the 'stxos' argument is not
+// nil, it will be updated to append an entry for each spent txout. An error
+// will be returned if the cache and the database does not contain the required
+// utxos.
 func (s *utxoCache) connectTransaction(
 	tx *btcutil.Tx, blockHeight int32, stxos *[]SpentTxOut) error {
 
@@ -510,9 +534,11 @@ func (s *utxoCache) connectTransaction(
 // connectTransactions updates the cache by adding all new utxos created by all
 // of the transactions in the passed block, marking and/or removing all utxos
 // the transactions spend as spent, and setting the best hash for the view to
-// the passed block.  In addition, when the 'stxos' argument is not nil, it will
+// the passed block. In addition, when the 'stxos' argument is not nil, it will
 // be updated to append an entry for each spent txout.
-func (s *utxoCache) connectTransactions(block *btcutil.Block, stxos *[]SpentTxOut) error {
+func (s *utxoCache) connectTransactions(block *btcutil.Block,
+	stxos *[]SpentTxOut) error {
+
 	for _, tx := range block.Transactions() {
 		err := s.connectTransaction(tx, block.Height(), stxos)
 		if err != nil {
@@ -523,7 +549,8 @@ func (s *utxoCache) connectTransactions(block *btcutil.Block, stxos *[]SpentTxOu
 	return nil
 }
 
-// writeCache writes all the entries that are cached in memory to the database atomically.
+// writeCache writes all the entries that are cached in memory to the database
+// atomically.
 func (s *utxoCache) writeCache(dbTx database.Tx, bestState *BestState) error {
 	// Update commits and flushes the cache to the database.
 	// NOTE: The database has its own cache which gets atomically written
@@ -532,19 +559,23 @@ func (s *utxoCache) writeCache(dbTx database.Tx, bestState *BestState) error {
 	for i := range s.cachedEntries.maps {
 		for outpoint, entry := range s.cachedEntries.maps[i] {
 			switch {
-			// If the entry is nil or spent, remove the entry from the database
-			// and the cache.
+			// If the entry is nil or spent, remove the entry from
+			// the database and the cache.
 			case entry == nil || entry.IsSpent():
 				err := dbDeleteUtxoEntry(utxoBucket, outpoint)
 				if err != nil {
 					return err
 				}
 
-			// No need to update the cache if the entry was not modified.
+			// No need to update the cache if the entry was not
+			// modified.
 			case !entry.isModified():
 			default:
-				// Entry is fresh and needs to be put into the database.
-				err := dbPutUtxoEntry(utxoBucket, outpoint, entry)
+				// Entry is fresh and needs to be put into the
+				// database.
+				err := dbPutUtxoEntry(
+					utxoBucket, outpoint, entry,
+				)
 				if err != nil {
 					return err
 				}
@@ -556,8 +587,8 @@ func (s *utxoCache) writeCache(dbTx database.Tx, bestState *BestState) error {
 	s.cachedEntries.deleteMaps()
 	s.totalEntryMemory = 0
 
-	// When done, store the best state hash in the database to indicate the state
-	// is consistent until that hash.
+	// When done, store the best state hash in the database to indicate the
+	// state is consistent until that hash.
 	err := dbPutUtxoStateConsistency(dbTx, &bestState.Hash)
 	if err != nil {
 		return err
@@ -570,17 +601,21 @@ func (s *utxoCache) writeCache(dbTx database.Tx, bestState *BestState) error {
 	return nil
 }
 
-// flush flushes the UTXO state to the database if a flush is needed with the given flush mode.
+// flush flushes the UTXO state to the database if a flush is needed with the
+// given flush mode.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (s *utxoCache) flush(dbTx database.Tx, mode FlushMode, bestState *BestState) error {
+func (s *utxoCache) flush(dbTx database.Tx, mode FlushMode,
+	bestState *BestState) error {
+
 	var threshold uint64
 	switch mode {
 	case FlushRequired:
 		threshold = 0
 
 	case FlushIfNeeded:
-		// If we performed a flush in the current best state, we have nothing to do.
+		// If we performed a flush in the current best state, we have
+		// nothing to do.
 		if bestState.Hash == s.lastFlushHash {
 			return nil
 		}
@@ -588,8 +623,9 @@ func (s *utxoCache) flush(dbTx database.Tx, mode FlushMode, bestState *BestState
 		threshold = s.maxTotalMemoryUsage
 
 	case FlushPeriodic:
-		// If the time since the last flush is over the periodic interval,
-		// force a flush.  Otherwise just flush when the cache is full.
+		// If the time since the last flush is over the periodic
+		// interval, force a flush. Otherwise just flush when the cache
+		// is full.
 		if time.Since(s.lastFlushTime) > utxoFlushPeriodicInterval {
 			threshold = 0
 		} else {
@@ -600,8 +636,9 @@ func (s *utxoCache) flush(dbTx database.Tx, mode FlushMode, bestState *BestState
 	if s.totalMemoryUsage() >= threshold {
 		// Add one to round up the integer division.
 		totalMiB := s.totalMemoryUsage() / ((1024 * 1024) + 1)
-		log.Infof("Flushing UTXO cache of %d MiB with %d entries to disk. For large sizes, "+
-			"this can take up to several minutes...", totalMiB, s.cachedEntries.length())
+		log.Infof("Flushing UTXO cache of %d MiB with %d entries to "+
+			"disk. For large sizes, this can take up to several "+
+			"minutes...", totalMiB, s.cachedEntries.length())
 
 		return s.writeCache(dbTx, bestState)
 	}
@@ -609,8 +646,8 @@ func (s *utxoCache) flush(dbTx database.Tx, mode FlushMode, bestState *BestState
 	return nil
 }
 
-// FlushUtxoCache flushes the UTXO state to the database if a flush is needed with the
-// given flush mode.
+// FlushUtxoCache flushes the UTXO state to the database if a flush is needed
+// with the given flush mode.
 //
 // This function is safe for concurrent access.
 func (b *BlockChain) FlushUtxoCache(mode FlushMode) error {
@@ -627,7 +664,9 @@ func (b *BlockChain) FlushUtxoCache(mode FlushMode) error {
 //
 // It needs to be ensured that the chainView passed to this method does not
 // get changed during the execution of this method.
-func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct{}) error {
+func (b *BlockChain) InitConsistentState(tip *blockNode,
+	interrupt <-chan struct{}) error {
+
 	s := b.utxoCache
 
 	// Load the consistency status from the database.
@@ -637,9 +676,9 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 		return nil
 	})
 
-	// If no status was found, the database is old and didn't have a cached utxo
-	// state yet. In that case, we set the status to the best state and write
-	// this to the database.
+	// If no status was found, the database is old and didn't have a cached
+	// utxo state yet. In that case, we set the status to the best state and
+	// write this to the database.
 	if statusBytes == nil {
 		err := s.db.Update(func(dbTx database.Tx) error {
 			return dbPutUtxoStateConsistency(dbTx, &tip.hash)
@@ -659,41 +698,45 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 
 	// If state is consistent, we are done.
 	if statusHash.IsEqual(&tip.hash) {
-		log.Debugf("UTXO state consistent at (%d:%v)", tip.height, tip.hash)
+		log.Debugf("UTXO state consistent at (%d:%v)", tip.height,
+			tip.hash)
 
-		// The last flush hash is set to the default value of all 0s. Set
-		// it to the tip since we checked it's consistent.
+		// The last flush hash is set to the default value of all 0s.
+		// Set it to the tip since we checked it's consistent.
 		s.lastFlushHash = tip.hash
 
-		// Set the last flush time as now since we know the state is consistent
-		// at this time.
+		// Set the last flush time as now since we know the state is
+		// consistent at this time.
 		s.lastFlushTime = time.Now()
 
 		return nil
 	}
 
 	lastFlushNode := b.index.LookupNode(statusHash)
-	log.Infof("Reconstructing UTXO state after an unclean shutdown. The UTXO state is "+
-		"consistent at block %s (%d) but the chainstate is at block %s (%d),  This may "+
-		"take a long time...", statusHash.String(), lastFlushNode.height,
-		tip.hash.String(), tip.height)
+	log.Infof("Reconstructing UTXO state after an unclean shutdown. The "+
+		"UTXO state is consistent at block %s (%d) but the chainstate "+
+		"is at block %s (%d), This may take a long time...",
+		statusHash.String(), lastFlushNode.height, tip.hash.String(),
+		tip.height)
 
-	// Even though this should always be true, make sure the fetched hash is in
-	// the best chain.
+	// Even though this should always be true, make sure the fetched hash
+	// is in the best chain.
 	fork := b.bestChain.FindFork(lastFlushNode)
 	if fork == nil {
-		return AssertError(fmt.Sprintf("last utxo consistency status contains "+
-			"hash that is not in best chain: %v", statusHash))
+		return AssertError(fmt.Sprintf("last utxo consistency status "+
+			"contains hash that is not in best chain: %v",
+			statusHash))
 	}
 
-	// We never disconnect blocks as they cannot be inconsistent during a reorganization.
-	// This is because The cache is flushed before the reorganization begins and the utxo
-	// set at each block disconnect is written atomically to the database.
+	// We never disconnect blocks as they cannot be inconsistent during a
+	// reorganization. This is because The cache is flushed before the
+	// reorganization begins and the utxo set at each block disconnect is
+	// written atomically to the database.
 	node := lastFlushNode
 
 	// We replay the blocks from the last consistent state up to the best
-	// state. Iterate forward from the consistent node to the tip of the best
-	// chain.
+	// state. Iterate forward from the consistent node to the tip of the
+	// best chain.
 	attachNodes := list.New()
 	for n := tip; n.height >= 0; n = n.parent {
 		if n == fork {
@@ -723,10 +766,15 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 			return err
 		}
 
-		// Flush the utxo cache if needed.  This will in turn update the
+		// Flush the utxo cache if needed. This will in turn update the
 		// consistent state to this block.
 		err = s.db.Update(func(dbTx database.Tx) error {
-			return s.flush(dbTx, FlushIfNeeded, &BestState{Hash: node.hash, Height: node.height})
+			return s.flush(
+				dbTx, FlushIfNeeded,
+				&BestState{
+					Hash: node.hash, Height: node.height,
+				},
+			)
 		})
 		if err != nil {
 			return err
@@ -747,40 +795,44 @@ func (b *BlockChain) InitConsistentState(tip *blockNode, interrupt <-chan struct
 	return nil
 }
 
-// flushNeededAfterPrune returns true if the utxo cache needs to be flushed after a prune
-// of the block storage.  In the case of an unexpected shutdown, the utxo cache needs
-// to be reconstructed from where the utxo cache was last flushed.  In order for the
-// utxo cache to be reconstructed, we always need to have the blocks since the utxo cache
-// flush last happened.
+// flushNeededAfterPrune returns true if the utxo cache needs to be flushed
+// after a prune of the block storage. In the case of an unexpected shutdown,
+// the utxo cache needs to be reconstructed from where the utxo cache was last
+// flushed. In order for the utxo cache to be reconstructed, we always need to
+// have the blocks since the utxo cache flush last happened.
 //
-// Example: if the last flush hash was at height 100 and one of the deleted blocks was at
-// height 98, this function will return true.
-func (b *BlockChain) flushNeededAfterPrune(deletedBlockHashes []chainhash.Hash) (bool, error) {
+// Example: if the last flush hash was at height 100 and one of the deleted
+// blocks was at height 98, this function will return true.
+func (b *BlockChain) flushNeededAfterPrune(
+	deletedBlockHashes []chainhash.Hash) (bool, error) {
+
 	node := b.index.LookupNode(&b.utxoCache.lastFlushHash)
 	if node == nil {
-		// If we couldn't find the node where we last flushed at, have the utxo cache
-		// flush to be safe and that will set the last flush hash again.
+		// If we couldn't find the node where we last flushed at, have
+		// the utxo cache flush to be safe and that will set the last
+		// flush hash again.
 		//
-		// This realistically should never happen as nodes are never deleted from
-		// the block index.  This happening likely means that there's a hardware
-		// error which is something we can't recover from.  The best that we can
-		// do here is to just force a flush and hope that the newly set
-		// lastFlushHash doesn't error.
+		// This realistically should never happen as nodes are never
+		// deleted from the block index. This happening likely means
+		// that there's a hardware error which is something we can't
+		// recover from. The best that we can do here is to just force
+		// a flush and hope that the newly set lastFlushHash doesn't
+		// error.
 		return true, nil
 	}
 
 	lastFlushHeight := node.Height()
 
-	// Loop through all the block hashes and find out what the highest block height
-	// among the deleted hashes is.
+	// Loop through all the block hashes and find out what the highest block
+	// height among the deleted hashes is.
 	highestDeletedHeight := int32(-1)
 	for _, deletedBlockHash := range deletedBlockHashes {
 		node := b.index.LookupNode(&deletedBlockHash)
 		if node == nil {
-			// If we couldn't find this node, just skip it and try the next
-			// deleted hash.  This might be a corruption in the database
-			// but there's nothing we can do here to address it except for
-			// moving onto the next block.
+			// If we couldn't find this node, just skip it and try
+			// the next deleted hash. This might be a corruption in
+			// the database but there's nothing we can do here to
+			// address it except for moving onto the next block.
 			continue
 		}
 		if node.height > highestDeletedHeight {
