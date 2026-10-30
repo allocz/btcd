@@ -50,6 +50,31 @@ const (
 	avgEntrySize = baseEntrySize + pubKeyHashLen
 )
 
+const (
+	// slotsPerGroup accounts for how many slots a map swiss table group
+	// has.
+	slotsPerGroup = 8
+
+	// groupSize is the size of the map group for a
+	// map[wire.OutPoint]*UtxoEntry. It can be calculated with:
+	//
+	// 	unsafe.Sizeof(struct{
+	// 		slots [8]struct{
+	//      		key wire.OutPoint
+	//      		value *UtxoEntry
+	//      	}
+	//      	metadata uint64
+	// 	}{})
+	//
+	groupSize = 392
+
+	// mapLoadFactorNum is the load factor numerator for the Go map.
+	mapLoadFactorNum = 7
+
+	// mapLoadFactorDen is the load factor denominator for the Go map.
+	mapLoadFactorDen = 9
+)
+
 // The code here is shamelessly taken from the go runtime package.  All the relevant
 // code and variables are copied to here.  These values are only correct for a 64 bit
 // system.
@@ -247,4 +272,69 @@ func overLoadFactor(count int, B uint8) bool {
 func bucketShift(b uint8) uintptr {
 	// Masking the shift amount allows overflow checks to be elided.
 	return uintptr(1) << (b & (8*8 - 1))
+}
+
+// alignUpPow2 align N to it's next power of two if it is not a power of 2.
+func alignUpPow2(n uint64) uint64 {
+	if n == 0 || n > 1<<63 {
+		return 0
+	}
+
+	for i := uint64(0); i < 64; i++ {
+		if n <= 1<<i {
+			return 1 << i
+		}
+	}
+
+	panic("unreachable")
+}
+
+// mapSize returns the expected memory usage for a map given its hint and group
+// size. See groupSize to discover how to calculate the size of the map group.
+func mapSize(hint int, groupSize uint64) uint64 {
+	// Can be compared against the map implementation in
+	// `go/src/internal/runtime/maps`
+	const (
+		maxAvgGroupLoad = 7
+		maxTableSlots   = 1024
+
+		sizeOfMap         = 8 + 8 + 8 + 8 + 1 + 1 + 1 + 1 + 4 + 8
+		sizeOfTable       = 2 + 2 + 2 + 1 + 1 + 8 + 16
+		sizeOfDirEntry    = 8 // pointer
+		groupMetadataSize = 8 // uint64, 1 byte per entry
+	)
+
+	// If the hint is up to 8 entries, then the allocation happens on
+	// demand.
+	//
+	// Only the map header is allocated, conservatively we assume that it
+	// escapes to the heap.
+	if hint <= slotsPerGroup || groupSize == 0 {
+		return uint64(roundupsize(sizeOfMap))
+	}
+
+	targetSlots := (hint * slotsPerGroup) / maxAvgGroupLoad
+
+	tableCount := (uint64(targetSlots) + maxTableSlots - 1) / maxTableSlots
+	tableCount = alignUpPow2(tableCount)
+
+	tableSlots := uint64(targetSlots) / tableCount
+	tableSlots = alignUpPow2(tableSlots)
+
+	tableGroups := tableSlots / slotsPerGroup
+	tableGroupsSize := tableGroups * groupSize
+	tableGroupsSize = uint64(roundupsize(uintptr(tableGroupsSize)))
+	groupsSize := tableGroupsSize * tableCount
+
+	tablePointersSize := tableCount * sizeOfDirEntry
+	tablePointersSize = uint64(roundupsize(uintptr(tablePointersSize)))
+
+	tableSize := uint64(roundupsize(sizeOfTable))
+	tablesSize := tableCount * tableSize
+
+	mapSize := uint64(roundupsize(sizeOfMap))
+
+	estimatedSize := mapSize + tablePointersSize + tablesSize + groupsSize
+
+	return estimatedSize
 }

@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"testing"
 	"unsafe"
+
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // calculateEntries returns a number of entries that will make the map allocate
@@ -190,5 +192,100 @@ func TestAvgEntrySize(t *testing.T) {
 	if avgEntrySize != entryAlloc {
 		t.Errorf("bad avgEntrySize; want %d got %d", avgEntrySize,
 			entryAlloc)
+	}
+}
+
+// TestAlignUpPow2 asserts that the AlignUpPow2 function is working as expected,
+// which is, given input N, we expect the next power of two to be returned or
+// the same value if it is already a power of 2.
+func TestAlignUpPow2(t *testing.T) {
+	tests := []struct {
+		name string
+		in   uint64
+		exp  uint64
+	}{
+		{"01", 0, 0},
+		{"02", 1, 1},
+		{"03", 2, 2},
+		{"04", 3, 4},
+		{"05", 4, 4},
+		{"06", 65, 128},
+		{"07", 64, 64},
+		{"08", 63, 64},
+		{"09", 1 << 63, 1 << 63},
+		{"10", 1<<63 - 1, 1 << 63},
+		{"11", 1<<62 + 1, 1 << 63},
+		{"12", ^uint64(0), 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			r := alignUpPow2(test.in)
+			if test.exp != r {
+				t.Errorf("test name: %s; want: %d, "+
+					"got: %d", test.name, test.exp, r)
+			}
+		})
+	}
+}
+
+// mapSink is used to avoid compiler optimizations changing the test results.
+var mapSink map[wire.OutPoint]*UtxoEntry
+
+// TestMapSize asserts that given map hint and group size, we calculate the same
+// size as the Go allocator allocates. To do this, we compare the calculated
+// size against the bytes allocated by the runtime.
+//
+// This test is important because otherwise we may allocate more or less memory
+// than the maximum utxo cache size. This way, if our calculation becomes wrong
+// for changes in the Go runtime, we at least will know that there's something
+// wrong that needs to be fixed.
+func TestMapSize(t *testing.T) {
+	// Helper function that allocates a map with capacity to store hint
+	// slots and return how many bytes were allocated during the make map
+	// call.
+	allocF := func(hint int) uint64 {
+		var ms0, ms1 runtime.MemStats
+
+		runtime.ReadMemStats(&ms0)
+		mapSink = make(map[wire.OutPoint]*UtxoEntry, hint)
+		runtime.ReadMemStats(&ms1)
+		mapSink = nil
+
+		return ms1.TotalAlloc - ms0.TotalAlloc
+	}
+
+	// Make sure that the groupSize constant is correct.
+	realGroupSize := unsafe.Sizeof(struct {
+		slots [8]struct {
+			key   wire.OutPoint
+			value *UtxoEntry
+		}
+		metadata uint64
+	}{})
+	if groupSize != realGroupSize {
+		t.Errorf("unexpected group size; want %d, got %d", groupSize,
+			realGroupSize)
+	}
+
+	// The test calculate a hint for each base and compares the calculated
+	// allocation against the real allocation of a new map using the hint.
+	bases := []int{
+		0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096,
+		8192,
+	}
+	for _, base := range bases {
+		// We are adding one to the maximum load factor on purpose,
+		// because this way we don't pass a hint that will be exactly
+		// the maximum load factor for a map, which may increase the
+		// probability of failure if the map load factor changes.
+		hint := (base*mapLoadFactorNum)/mapLoadFactorDen + 1
+
+		want := mapSize(hint, groupSize)
+		got := sampledAlloc(hint, allocF)
+		if want != got {
+			t.Errorf("Failed base %d; allocWant %d, got %d", base,
+				want, got)
+		}
 	}
 }
