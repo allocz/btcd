@@ -1,8 +1,5 @@
 PKG := github.com/btcsuite/btcd
 
-LINT_PKG := github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
-
 GO_BIN := ${shell go env GOBIN}
 
 # If GOBIN is not set, default to GOPATH/bin.
@@ -10,11 +7,13 @@ ifeq ($(GO_BIN),)
 GO_BIN := $(shell go env GOPATH)/bin
 endif
 
-LINT_BIN := $(GO_BIN)/golangci-lint
-GOIMPORTS_BIN := $(GO_BIN)/goimports
+LINT_BIN := golangci-lint
+GOIMPORTS_BIN := goimports
 
-LINT_COMMIT := v2.14.0
-GOIMPORTS_COMMIT := v0.51.0
+CONTAINER_ENGINE := $(shell which podman || which docker)
+TOOLS_RUN := $(CONTAINER_ENGINE) run --rm -v=.:/build \
+	-v=$(shell bash -c 'mkdir -p /tmp/btcd-container-cache; echo /tmp/btcd-container-cache'):/root/.cache  \
+	--name='btcd-tools' "btcd-tools"
 
 GOBUILD := go build -v
 GOINSTALL := go install -v 
@@ -48,14 +47,8 @@ all: build check
 # DEPENDENCIES
 # ============
 
-$(LINT_BIN):
-	@$(call print, "Fetching linter")
-	$(GOINSTALL) $(LINT_PKG)@$(LINT_COMMIT)
-
-#? goimports: Install goimports
-goimports:
-	@$(call print, "Installing goimports.")
-	$(GOINSTALL) $(GOIMPORTS_PKG)@$(GOIMPORTS_COMMIT)
+tools: $(CONTAINER_ENGINE)
+	$(CONTAINER_ENGINE) build -f tools/Containerfile --tag="btcd-tools" .
 
 # ============
 # INSTALLATION
@@ -142,16 +135,16 @@ unit-race:
 # =========
 
 #? fmt: Fix imports and formatting source
-fmt: goimports
+fmt: tools
 	@$(call print, "Fixing imports.")
-	$(GOIMPORTS_BIN) -w .
+	$(TOOLS_RUN) $(GOIMPORTS_BIN) -w .
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s .
 
 #? lint: Lint source
-lint: $(LINT_BIN)
+lint: tools
 	@$(call print, "Linting source.")
-	$(LINT)
+	$(TOOLS_RUN) $(LINT)
 
 #? clean: Clean source
 clean:
@@ -178,6 +171,7 @@ check-go-versions:
 	unit-race \
 	fmt \
 	lint \
+	tools \
 	clean \
 	tidy-module \
 	check-go-versions
