@@ -1,0 +1,10 @@
+FROM docker.io/library/golang:1.27.4-alpine3.24
+
+RUN apk update && apk add --no-cache git
+
+WORKDIR /build
+
+RUN go mod init build \
+	&& go install -v github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 \
+	&& go install -v golang.org/x/tools/cmd/goimports@v0.51.0 \
+	&& rm -rf /go/pkg /go/src /root/.cache
