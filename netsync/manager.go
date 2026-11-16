@@ -5,6 +5,7 @@
 package netsync
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -688,6 +689,40 @@ func (sm *SyncManager) checkHeadersList(blockHash *chainhash.Hash) (
 	return isCheckpointBlock, behaviorFlags
 }
 
+// checkUTXOSetCheckpoint verifies if the current block is eligible to
+// UTXOSetCheckpoint, which increases initial block download speed.
+func (sm *SyncManager) checkUTXOSetCheckpoint(blockHash *chainhash.Hash,
+	bflags blockchain.BehaviorFlags) (bool, blockchain.BehaviorFlags) {
+
+	if bflags&blockchain.BFFastAdd == 0 {
+		return false, bflags
+	}
+
+	uCheckpointHeight := sm.chain.ChainParams().UTXOCheckpoint.Height
+	if uCheckpointHeight <= 0 {
+		return false, bflags
+	}
+
+	height, err := sm.chain.HeaderHeightByHash(*blockHash)
+	if err != nil {
+		return false, bflags
+	}
+
+	if height <= 0 {
+		return false, bflags
+	}
+
+	if height == uCheckpointHeight {
+		return true, bflags | blockchain.BFUTXOSetCheckpoint
+	}
+
+	if height < uCheckpointHeight {
+		return false, bflags | blockchain.BFUTXOSetCheckpoint
+	}
+
+	return false, bflags
+}
+
 // handleBlockMsg handles block messages from all peers.
 func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	peer := bmsg.peer
@@ -717,6 +752,9 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	// have already been verified to link together and are valid up to the
 	// next checkpoint.
 	isCheckpointBlock, behaviorFlags := sm.checkHeadersList(blockHash)
+
+	isUTXOCheckpointBlock, behaviorFlags := sm.checkUTXOSetCheckpoint(
+		blockHash, behaviorFlags)
 
 	// Remove block from request maps. Either chain will know about it and
 	// so we shouldn't have any more instances of trying to fetch it, or we
@@ -822,6 +860,42 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 			go sm.peerNotifier.UpdatePeerHeights(blkHashUpdate, heightUpdate,
 				peer)
 		}
+	}
+
+	// After processing an UTXO checkpoint block, we must assert that the
+	// UTXO set hash matches the expected one, otherwise we should abort the
+	// IBD.
+	if isUTXOCheckpointBlock {
+		utxoSetHash := sm.chain.ChainParams().UTXOCheckpoint.UTXOSetHash
+
+		log.Infof("Performing UTXO set validation at block %d",
+			heightUpdate)
+
+		start := time.Now()
+		utxoStats, err := sm.chain.CalcUTXOSetStats()
+		if err != nil {
+			// We can't continue without validating the UTXOSet
+			// state.
+			err := fmt.Errorf("failed to calculate UTXOSet stats "+
+				"%s", err)
+			panic(err)
+		}
+
+		if utxoStats.UTXOSetHash != utxoSetHash {
+			// If this happens, something is badly wrong, probably
+			// caused by a bug or hardware failure and we can't
+			// continue IBD with an inconsistent state.
+			err := fmt.Errorf("UTXOSet validation failed; "+
+				"hashes do not match; "+
+				"expected %s current %s; utxos %d sats %d",
+				chainhash.Hash(utxoSetHash),
+				chainhash.Hash(utxoStats.UTXOSetHash),
+				utxoStats.UTXOCount, utxoStats.SatoshiAmount)
+			panic(err)
+		}
+
+		log.Infof("utxoset validation completed in %fs",
+			time.Since(start).Seconds())
 	}
 
 	// If we are not in the initial block download mode, it's a good time to
